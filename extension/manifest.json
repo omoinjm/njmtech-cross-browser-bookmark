@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "Bookmark Sync Engine",
+  "version": "1.0.0",
+  "description": "Automatically syncs new browser bookmarks to a personal Cloudflare-powered search & auto-tagging engine.",
+  "permissions": [
+    "bookmarks",
+    "tabs",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://YOUR_WORKER_SUBDOMAIN.workers.dev/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Bookmark Sync Engine"
+  }
+}

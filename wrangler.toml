@@ -1,0 +1,28 @@
+name = "bookmark-sync-engine"
+main = "src/index.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+# --- D1 (SQLite) database -----------------------------------------------
+# Create with: wrangler d1 create bookmarks-db
+# Then paste the returned database_id below.
+[[d1_databases]]
+binding       = "DB"
+database_name = "bookmarks-db"
+database_id   = "be8c0f80-7417-499a-9c75-8a4a0f3f91b8"
+
+# --- Workers AI -----------------------------------------------------------
+# No setup needed beyond having Workers AI enabled on the account.
+[ai]
+binding = "AI"
+
+# --- Browser Rendering ------------------------------------------------------
+# Gives the Worker a real headless Chromium instance via @cloudflare/puppeteer.
+[browser]
+binding = "BROWSER"
+
+[observability]
+enabled = true
+
+[observability.logs]
+enabled = true
