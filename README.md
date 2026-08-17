@@ -37,6 +37,8 @@ npm run db:init      # apply schema.sql to the local D1 database
 
 ## Deploying
 
+The Worker is deployed at `bookmarks.njmtech.co.za` via the `routes` entry in `wrangler.toml` (a Cloudflare custom domain — requires `njmtech.co.za` to be an active zone on the same Cloudflare account).
+
 **Automatic (recommended):** pushing to `main` triggers [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml), which typechecks and then runs `wrangler deploy`. This requires two repository secrets under **Settings → Secrets and variables → Actions**:
 
 - `CLOUDFLARE_API_TOKEN`
@@ -56,8 +58,7 @@ npm run db:init:remote
 
 ## Loading the browser extension
 
+The extension already points at `https://bookmarks.njmtech.co.za` (`extension/manifest.json` and `extension/background.js`), which is deployed as a Cloudflare custom domain — see below.
+
 1. In Chrome/Edge, go to `chrome://extensions`, enable **Developer mode**, and click **Load unpacked** → select the `extension/` folder. (Firefox: `about:debugging` → **This Firefox** → **Load Temporary Add-on** → select `extension/manifest.json`.)
-2. After your first deploy, update the placeholder Worker URL (`YOUR_WORKER_SUBDOMAIN.workers.dev`) in both:
-   - `extension/manifest.json` (`host_permissions`)
-   - `extension/background.js` (`WORKER_API_URL`)
-3. Reload the extension. New bookmarks you create will now sync automatically.
+2. New bookmarks you create will now sync automatically.

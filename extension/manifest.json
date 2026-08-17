@@ -9,7 +9,7 @@
     "storage"
   ],
   "host_permissions": [
-    "https://YOUR_WORKER_SUBDOMAIN.workers.dev/*"
+    "https://bookmarks.njmtech.co.za/*"
   ],
   "background": {
     "service_worker": "background.js",

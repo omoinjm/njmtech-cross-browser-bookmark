@@ -3,6 +3,12 @@ main = "src/index.ts"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
 
+# --- Custom domain ---------------------------------------------------------
+# Requires njmtech.co.za to be an active zone on this Cloudflare account.
+routes = [
+  { pattern = "bookmarks.njmtech.co.za", custom_domain = true }
+]
+
 # --- D1 (SQLite) database -----------------------------------------------
 # Create with: wrangler d1 create bookmarks-db
 # Then paste the returned database_id below.

@@ -4,7 +4,7 @@
 // bookmark to the Cloudflare Worker, which handles scraping + AI tagging
 // asynchronously. This script's job is just: detect, dedupe junk, POST.
 
-const WORKER_API_URL = 'https://YOUR_WORKER_SUBDOMAIN.workers.dev';
+const WORKER_API_URL = 'https://bookmarks.njmtech.co.za';
 
 chrome.bookmarks.onCreated.addListener(async (_id, bookmark) => {
   // Bookmark folders have no `url`; skip those. Also skip non-http(s)
