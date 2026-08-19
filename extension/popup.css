@@ -3,7 +3,7 @@
 }
 
 body {
-  width: 320px;
+  width: 340px;
   margin: 0;
   padding: 12px 14px;
   font: 13px/1.4 var(--font-sans);
@@ -150,4 +150,305 @@ button:disabled {
   font-family: var(--font-mono);
   color: var(--text-muted);
   margin: 4px 0;
+}
+
+/* --- Tabs --- */
+
+#tab-bar {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.tab-btn {
+  flex: 1;
+  width: auto;
+  margin: 0;
+  padding: 6px 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  background: none;
+  color: var(--text-secondary);
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+}
+
+/* button.tab-btn (not just .tab-btn) to out-specificity the generic
+   button:hover:not(:disabled) rule above, which would otherwise win and
+   paint tabs with its solid-fill treatment instead of this flat one. */
+button.tab-btn:hover {
+  color: var(--text-primary);
+  background: none;
+  box-shadow: none;
+}
+
+.tab-btn:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--accent-green);
+}
+
+.tab-btn.active {
+  color: var(--accent-green);
+  border-bottom-color: var(--accent-green);
+}
+
+.tab-panel[hidden] {
+  display: none;
+}
+
+/* --- Suggest tab (AI reorganization) --- */
+
+#reorg-status {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 4px 0 8px;
+}
+
+#reorg-list {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.reorg-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  padding: 8px 10px;
+}
+
+.reorg-item input[type='checkbox'] {
+  margin: 3px 0 0;
+  accent-color: var(--accent-green);
+  flex-shrink: 0;
+}
+
+.reorg-item-body {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.reorg-paths {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.reorg-paths .from {
+  color: var(--text-secondary);
+  text-decoration: line-through;
+  text-decoration-color: var(--status-danger);
+}
+
+.reorg-paths .arrow {
+  color: var(--accent-green-dim);
+  margin: 0 4px;
+}
+
+.reorg-paths .to {
+  color: var(--accent-green);
+}
+
+.reorg-reason {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 3px;
+}
+
+#reorg-actions {
+  display: flex;
+  gap: 6px;
+}
+
+#reorg-actions[hidden] {
+  display: none;
+}
+
+#reorg-actions button {
+  width: auto;
+  flex: 1;
+  margin: 0;
+}
+
+#reorg-cancel-btn {
+  color: var(--text-secondary);
+  border-color: var(--border-default);
+}
+
+#reorg-cancel-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-surface-hover);
+  border-color: var(--border-strong);
+  box-shadow: none;
+}
+
+/* --- Search tab --- */
+
+#search-input {
+  width: 100%;
+  padding: 7px 10px;
+  margin-bottom: 8px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-primary);
+  background: var(--bg-inset);
+  border: 1px solid var(--border-default);
+  border-radius: 0;
+}
+
+#search-input::placeholder {
+  color: var(--text-muted);
+}
+
+#search-input:focus {
+  outline: none;
+  border-color: var(--accent-green);
+  box-shadow: 0 0 0 1px var(--accent-green), 0 0 8px var(--accent-green-glow);
+}
+
+#search-status {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: 0 0 6px;
+}
+
+#search-results {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+#search-results::-webkit-scrollbar,
+#reorg-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+#search-results::-webkit-scrollbar-track,
+#reorg-list::-webkit-scrollbar-track {
+  background: var(--bg-inset);
+}
+
+#search-results::-webkit-scrollbar-thumb,
+#reorg-list::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 0;
+}
+
+#search-results::-webkit-scrollbar-thumb:hover,
+#reorg-list::-webkit-scrollbar-thumb:hover {
+  background: var(--accent-green-dim);
+}
+
+.search-result {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  padding: 6px 8px;
+}
+
+.search-result:hover {
+  border-color: var(--accent-green-dim);
+}
+
+.search-result .title {
+  display: block;
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--text-primary);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-result .title:hover {
+  color: var(--accent-green);
+  text-decoration: underline;
+}
+
+.search-result .title:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1px var(--accent-green);
+}
+
+.search-result .url {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin: 1px 0 4px;
+}
+
+.search-result .category-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--text-secondary);
+  background: var(--bg-inset);
+  border: 1px solid var(--border-default);
+  border-radius: 0;
+  padding: 1px 6px;
+  margin: 0 0 4px;
+  cursor: pointer;
+  width: auto;
+}
+
+.search-result .category-label::before {
+  content: "▸";
+  color: var(--accent-green-dim);
+  font-size: 8px;
+}
+
+.search-result .category-label:hover {
+  background: var(--bg-surface-hover);
+  border-color: var(--accent-green-dim);
+  color: var(--text-primary);
+  box-shadow: none;
+}
+
+.search-result .category-label:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1px var(--accent-green);
+}
+
+.search-result .snippet {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 2px 0 0;
+}
+
+.search-result .snippet mark {
+  background: var(--mark-bg);
+  color: var(--mark-text);
+  font-style: normal;
+  border-radius: 0;
+  padding: 0 1px;
 }

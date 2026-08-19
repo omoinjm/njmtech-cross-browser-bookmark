@@ -9,20 +9,45 @@
   <body>
     <h1>Bookmark Sync Engine</h1>
 
-    <button id="import-btn" type="button">Import all bookmarks</button>
-    <button id="library-btn" type="button">View library</button>
-    <p id="progress"></p>
+    <div id="tab-bar" role="tablist">
+      <button class="tab-btn active" type="button" role="tab" aria-selected="true" data-tab="import">Import</button>
+      <button class="tab-btn" type="button" role="tab" aria-selected="false" data-tab="suggest">Suggest</button>
+      <button class="tab-btn" type="button" role="tab" aria-selected="false" data-tab="search">Search</button>
+    </div>
 
-    <label class="setting-row">
-      <input id="suggest-category-toggle" type="checkbox" />
-      Suggest categories for unfiled bookmarks (AI)
-    </label>
+    <section id="tab-import" class="tab-panel" role="tabpanel">
+      <button id="import-btn" type="button">Import all bookmarks</button>
+      <button id="library-btn" type="button">View library</button>
+      <p id="progress"></p>
 
-    <h2>Recent activity</h2>
-    <ul id="activity-list"></ul>
-    <p id="empty-state">Nothing synced yet.</p>
+      <label class="setting-row">
+        <input id="suggest-category-toggle" type="checkbox" />
+        Suggest categories for unfiled bookmarks (AI)
+      </label>
+
+      <h2>Recent activity</h2>
+      <ul id="activity-list"></ul>
+      <p id="empty-state">Nothing synced yet.</p>
+    </section>
+
+    <section id="tab-suggest" class="tab-panel" role="tabpanel" hidden>
+      <button id="suggest-reorg-btn" type="button">Suggest reorganization</button>
+      <p id="reorg-status"></p>
+      <ul id="reorg-list"></ul>
+      <div id="reorg-actions" hidden>
+        <button id="reorg-apply-btn" type="button">Apply selected</button>
+        <button id="reorg-cancel-btn" type="button">Cancel</button>
+      </div>
+    </section>
+
+    <section id="tab-search" class="tab-panel" role="tabpanel" hidden>
+      <input id="search-input" type="search" placeholder="Search bookmarks…" autocomplete="off" />
+      <p id="search-status"></p>
+      <ul id="search-results"></ul>
+    </section>
 
     <script src="browser-polyfill.js"></script>
+    <script src="config.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>

@@ -2,19 +2,11 @@ const searchInput = document.getElementById('search-input');
 const categoryNavEl = document.getElementById('category-nav');
 const categoryTreeEl = document.getElementById('category-tree');
 const tagNavEl = document.getElementById('tag-nav');
-const bookmarkViewEl = document.getElementById('bookmark-view');
 const bookmarkListEl = document.getElementById('bookmark-list');
 const emptyStateEl = document.getElementById('empty-state');
 const statusLineEl = document.getElementById('status-line');
 const loadMoreBtn = document.getElementById('load-more-btn');
 const importBannerEl = document.getElementById('import-banner');
-const suggestReorgBtn = document.getElementById('suggest-reorg-btn');
-const reorgPanelEl = document.getElementById('reorg-panel');
-const reorgStatusEl = document.getElementById('reorg-status');
-const reorgListEl = document.getElementById('reorg-list');
-const reorgActionsEl = document.getElementById('reorg-actions');
-const reorgApplyBtn = document.getElementById('reorg-apply-btn');
-const reorgCancelBtn = document.getElementById('reorg-cancel-btn');
 
 const PAGE_SIZE = 50;
 
@@ -44,10 +36,6 @@ searchInput.addEventListener('input', debounce(() => {
 loadMoreBtn.addEventListener('click', () => loadBookmarks({ reset: false }));
 
 categoryNavEl.querySelector('.nav-btn[data-category=""]').addEventListener('click', () => selectCategory(''));
-
-suggestReorgBtn.addEventListener('click', startReorgSuggestion);
-reorgCancelBtn.addEventListener('click', closeReorgPanel);
-reorgApplyBtn.addEventListener('click', applySelectedReorg);
 
 document.querySelectorAll('#sidebar h2.collapsible').forEach((heading) => {
   heading.addEventListener('click', () => {
@@ -274,6 +262,11 @@ async function loadBookmarks({ reset }) {
       const data = await apiGet(`/search?q=${encodeURIComponent(query)}`);
       bookmarks = data.results || [];
       statusLineEl.textContent = `${bookmarks.length} result(s) for "${query}"`;
+      // Surfaces what the AI query-expander added, rather than silently
+      // widening the search behind the scenes — see search.ts.
+      if (data.expandedTerms?.length) {
+        statusLineEl.textContent += ` — AI also searched: ${data.expandedTerms.join(', ')}`;
+      }
     } else {
       const params = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(reset ? 0 : offset) });
       if (activeCategory) {
@@ -463,137 +456,6 @@ async function apiGet(path) {
     throw new Error(`Worker responded ${response.status}`);
   }
   return response.json();
-}
-
-async function apiPost(path, body) {
-  const response = await fetch(`${WORKER_API_URL}${path}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${API_TOKEN}`,
-    },
-    body: JSON.stringify(body),
-  });
-  if (!response.ok) {
-    const errorBody = await response.json().catch(() => null);
-    throw new Error(errorBody?.error || `Worker responded ${response.status}`);
-  }
-  return response.json();
-}
-
-// --- AI-suggested category reorganization ---
-//
-// "Suggest reorganization" analyzes the whole current category list at once
-// (not per-bookmark) and proposes renames/merges for poorly-organized ones.
-// Suggest-only: nothing changes until the user reviews and clicks Apply,
-// which sends back only the checked entries.
-
-let currentReorgSuggestions = [];
-
-async function startReorgSuggestion() {
-  bookmarkViewEl.hidden = true;
-  reorgPanelEl.hidden = false;
-  reorgListEl.innerHTML = '';
-  reorgActionsEl.hidden = true;
-  reorgStatusEl.textContent = 'Analyzing your category structure…';
-  suggestReorgBtn.disabled = true;
-
-  try {
-    const data = await apiPost('/categories/suggest-reorganization', {});
-    currentReorgSuggestions = data.suggestions || [];
-    renderReorgSuggestions();
-  } catch (err) {
-    console.error('[Library] Failed to get reorganization suggestions:', err);
-    reorgStatusEl.textContent = 'Failed to get suggestions — is the Worker reachable?';
-  } finally {
-    suggestReorgBtn.disabled = false;
-  }
-}
-
-function renderReorgSuggestions() {
-  reorgListEl.innerHTML = '';
-
-  if (currentReorgSuggestions.length === 0) {
-    reorgStatusEl.textContent = 'No changes suggested — your categories already look reasonably organized.';
-    reorgActionsEl.hidden = true;
-    return;
-  }
-
-  reorgStatusEl.textContent = `${currentReorgSuggestions.length} suggested change(s). Uncheck any you don't want, then apply.`;
-  reorgActionsEl.hidden = false;
-
-  currentReorgSuggestions.forEach((suggestion, index) => {
-    const li = document.createElement('li');
-    li.className = 'reorg-item';
-
-    const checkbox = document.createElement('input');
-    checkbox.type = 'checkbox';
-    checkbox.checked = true;
-    checkbox.dataset.index = String(index);
-
-    const body = document.createElement('div');
-    body.className = 'reorg-item-body';
-
-    const paths = document.createElement('div');
-    paths.className = 'reorg-paths';
-    const from = document.createElement('span');
-    from.className = 'from';
-    from.textContent = suggestion.from;
-    const arrow = document.createElement('span');
-    arrow.className = 'arrow';
-    arrow.textContent = '▸';
-    const to = document.createElement('span');
-    to.className = 'to';
-    to.textContent = suggestion.to;
-    paths.append(from, arrow, to);
-
-    body.appendChild(paths);
-
-    if (suggestion.reason) {
-      const reason = document.createElement('div');
-      reason.className = 'reorg-reason';
-      reason.textContent = suggestion.reason;
-      body.appendChild(reason);
-    }
-
-    li.append(checkbox, body);
-    reorgListEl.appendChild(li);
-  });
-}
-
-async function applySelectedReorg() {
-  const selected = [...reorgListEl.querySelectorAll('input[type="checkbox"]:checked')].map(
-    (checkbox) => currentReorgSuggestions[Number(checkbox.dataset.index)]
-  );
-
-  if (selected.length === 0) {
-    reorgStatusEl.textContent = 'Select at least one suggestion to apply.';
-    return;
-  }
-
-  reorgApplyBtn.disabled = true;
-  reorgStatusEl.textContent = 'Applying…';
-
-  try {
-    const mapping = selected.map(({ from, to }) => ({ from, to }));
-    const data = await apiPost('/categories/reorganize', { mapping });
-    reorgStatusEl.textContent = `Applied ${data.applied} change(s). Refreshing…`;
-    await Promise.all([loadCategories(), loadTags()]);
-    await loadBookmarks({ reset: true });
-    closeReorgPanel();
-  } catch (err) {
-    console.error('[Library] Failed to apply reorganization:', err);
-    reorgStatusEl.textContent = `Failed to apply: ${err.message}`;
-  } finally {
-    reorgApplyBtn.disabled = false;
-  }
-}
-
-function closeReorgPanel() {
-  reorgPanelEl.hidden = true;
-  bookmarkViewEl.hidden = false;
-  reorgListEl.innerHTML = '';
-  currentReorgSuggestions = [];
 }
 
 function debounce(fn, delayMs) {

@@ -70,6 +70,297 @@ function renderActivity(entries) {
   }
 }
 
+// --- Tabs ---
+//
+// Import / Suggest / Search. Purely a display toggle — each tab's own logic
+// below runs regardless of which one is visible (e.g. an import can keep
+// progressing while the Search tab is open), so switching tabs never cancels
+// in-flight work.
+
+const tabBtns = document.querySelectorAll('.tab-btn');
+
+tabBtns.forEach((btn) => {
+  btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+});
+
+function switchTab(name) {
+  tabBtns.forEach((btn) => {
+    const active = btn.dataset.tab === name;
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-selected', String(active));
+  });
+
+  document.querySelectorAll('.tab-panel').forEach((panel) => {
+    panel.hidden = panel.id !== `tab-${name}`;
+  });
+}
+
+// --- AI-suggested category reorganization ---
+//
+// Analyzes the whole current category list at once (not per-bookmark) and
+// proposes renames/merges for poorly-organized ones. Suggest-only: nothing
+// changes until the user reviews and clicks Apply, which sends back only the
+// checked entries. Ported from the Library page, which no longer has its own
+// copy of this feature.
+
+const suggestReorgBtn = document.getElementById('suggest-reorg-btn');
+const reorgStatusEl = document.getElementById('reorg-status');
+const reorgListEl = document.getElementById('reorg-list');
+const reorgActionsEl = document.getElementById('reorg-actions');
+const reorgApplyBtn = document.getElementById('reorg-apply-btn');
+const reorgCancelBtn = document.getElementById('reorg-cancel-btn');
+
+let currentReorgSuggestions = [];
+
+suggestReorgBtn.addEventListener('click', startReorgSuggestion);
+reorgCancelBtn.addEventListener('click', closeReorgPanel);
+reorgApplyBtn.addEventListener('click', applySelectedReorg);
+
+async function startReorgSuggestion() {
+  reorgListEl.innerHTML = '';
+  reorgActionsEl.hidden = true;
+  reorgStatusEl.textContent = 'Analyzing your category structure…';
+  suggestReorgBtn.disabled = true;
+
+  try {
+    const data = await apiPost('/categories/suggest-reorganization', {});
+    currentReorgSuggestions = data.suggestions || [];
+    renderReorgSuggestions();
+  } catch (err) {
+    console.error('[Popup] Failed to get reorganization suggestions:', err);
+    reorgStatusEl.textContent = 'Failed to get suggestions — is the Worker reachable?';
+  } finally {
+    suggestReorgBtn.disabled = false;
+  }
+}
+
+function renderReorgSuggestions() {
+  reorgListEl.innerHTML = '';
+
+  if (currentReorgSuggestions.length === 0) {
+    reorgStatusEl.textContent = 'No changes suggested — your categories already look reasonably organized.';
+    reorgActionsEl.hidden = true;
+    return;
+  }
+
+  reorgStatusEl.textContent = `${currentReorgSuggestions.length} suggested change(s). Uncheck any you don't want, then apply.`;
+  reorgActionsEl.hidden = false;
+
+  currentReorgSuggestions.forEach((suggestion, index) => {
+    const li = document.createElement('li');
+    li.className = 'reorg-item';
+
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = true;
+    checkbox.dataset.index = String(index);
+
+    const body = document.createElement('div');
+    body.className = 'reorg-item-body';
+
+    const paths = document.createElement('div');
+    paths.className = 'reorg-paths';
+    const from = document.createElement('span');
+    from.className = 'from';
+    from.textContent = suggestion.from;
+    const arrow = document.createElement('span');
+    arrow.className = 'arrow';
+    arrow.textContent = '▸';
+    const to = document.createElement('span');
+    to.className = 'to';
+    to.textContent = suggestion.to;
+    paths.append(from, arrow, to);
+
+    body.appendChild(paths);
+
+    if (suggestion.reason) {
+      const reason = document.createElement('div');
+      reason.className = 'reorg-reason';
+      reason.textContent = suggestion.reason;
+      body.appendChild(reason);
+    }
+
+    li.append(checkbox, body);
+    reorgListEl.appendChild(li);
+  });
+}
+
+async function applySelectedReorg() {
+  const selected = [...reorgListEl.querySelectorAll('input[type="checkbox"]:checked')].map(
+    (checkbox) => currentReorgSuggestions[Number(checkbox.dataset.index)]
+  );
+
+  if (selected.length === 0) {
+    reorgStatusEl.textContent = 'Select at least one suggestion to apply.';
+    return;
+  }
+
+  reorgApplyBtn.disabled = true;
+  reorgStatusEl.textContent = 'Applying…';
+
+  try {
+    const mapping = selected.map(({ from, to }) => ({ from, to }));
+    const data = await apiPost('/categories/reorganize', { mapping });
+    reorgStatusEl.textContent = `Applied ${data.applied} change(s).`;
+    reorgListEl.innerHTML = '';
+    reorgActionsEl.hidden = true;
+    currentReorgSuggestions = [];
+  } catch (err) {
+    console.error('[Popup] Failed to apply reorganization:', err);
+    reorgStatusEl.textContent = `Failed to apply: ${err.message}`;
+  } finally {
+    reorgApplyBtn.disabled = false;
+  }
+}
+
+function closeReorgPanel() {
+  reorgListEl.innerHTML = '';
+  reorgActionsEl.hidden = true;
+  reorgStatusEl.textContent = '';
+  currentReorgSuggestions = [];
+}
+
+// --- Search ---
+//
+// A compact version of the Library page's search: same /api/v1/search
+// endpoint and highlighted-snippet rendering, trimmed down to fit the popup
+// (no category/tag sidebars — a result's category label instead deep-links
+// into the full Library page, same as the Ctrl+D suggestion notification does).
+
+const searchInput = document.getElementById('search-input');
+const searchStatusEl = document.getElementById('search-status');
+const searchResultsEl = document.getElementById('search-results');
+
+searchInput.addEventListener(
+  'input',
+  debounce(() => runSearch(searchInput.value.trim()), 300)
+);
+
+async function runSearch(query) {
+  if (!query) {
+    searchResultsEl.innerHTML = '';
+    searchStatusEl.textContent = '';
+    return;
+  }
+
+  try {
+    const data = await apiGet(`/search?q=${encodeURIComponent(query)}`);
+    const results = data.results || [];
+    searchStatusEl.textContent = `${results.length} result(s) for "${query}"`;
+    // Surfaces what the AI query-expander added, rather than silently
+    // widening the search behind the scenes — see search.ts.
+    if (data.expandedTerms?.length) {
+      searchStatusEl.textContent += ` — AI also searched: ${data.expandedTerms.join(', ')}`;
+    }
+    renderSearchResults(results);
+  } catch (err) {
+    console.error('[Popup] Search failed:', err);
+    searchStatusEl.textContent = 'Search failed — is the Worker reachable?';
+  }
+}
+
+function renderSearchResults(results) {
+  searchResultsEl.innerHTML = '';
+
+  for (const bookmark of results) {
+    searchResultsEl.appendChild(renderSearchResultCard(bookmark));
+  }
+}
+
+function renderSearchResultCard(bookmark) {
+  const li = document.createElement('li');
+  li.className = 'search-result';
+
+  const link = document.createElement('a');
+  link.className = 'title';
+  link.href = bookmark.url;
+  link.target = '_blank';
+  link.rel = 'noopener noreferrer';
+  link.textContent = bookmark.title || bookmark.url;
+  li.appendChild(link);
+
+  const urlEl = document.createElement('span');
+  urlEl.className = 'url';
+  urlEl.textContent = bookmark.url;
+  li.appendChild(urlEl);
+
+  if (bookmark.category) {
+    const categoryEl = document.createElement('button');
+    categoryEl.type = 'button';
+    categoryEl.className = 'category-label';
+    categoryEl.textContent = bookmark.category;
+    categoryEl.addEventListener('click', () => {
+      browser.tabs.create({
+        url: browser.runtime.getURL(`library.html?category=${encodeURIComponent(bookmark.category)}`),
+      });
+    });
+    li.appendChild(categoryEl);
+  }
+
+  if (bookmark.snippet) {
+    const snippet = document.createElement('div');
+    snippet.className = 'snippet';
+    appendHighlightedSnippet(snippet, bookmark.snippet);
+    li.appendChild(snippet);
+  }
+
+  return li;
+}
+
+// The backend marks FTS matches with U+0001/U+0002 (see search.ts), not
+// literal HTML tags — the snippet's source text is a scraped page's own
+// visible text, which is untrusted. Splitting on those markers and building
+// <mark> nodes via textContent (never innerHTML) means a bookmarked page
+// whose text happens to look like markup can't execute here.
+const SNIPPET_SPLIT_PATTERN = /[]/;
+
+function appendHighlightedSnippet(container, snippet) {
+  let highlighting = false;
+
+  for (const part of snippet.split(SNIPPET_SPLIT_PATTERN)) {
+    if (part) {
+      const node = highlighting ? document.createElement('mark') : document.createTextNode('');
+      node.textContent = part;
+      container.appendChild(node);
+    }
+    highlighting = !highlighting;
+  }
+}
+
+function debounce(fn, delayMs) {
+  let timer;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), delayMs);
+  };
+}
+
+async function apiGet(path) {
+  const response = await fetch(`${WORKER_API_URL}${path}`, {
+    headers: { Authorization: `Bearer ${API_TOKEN}` },
+  });
+  if (!response.ok) {
+    throw new Error(`Worker responded ${response.status}`);
+  }
+  return response.json();
+}
+
+async function apiPost(path, body) {
+  const response = await fetch(`${WORKER_API_URL}${path}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${API_TOKEN}`,
+    },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => null);
+    throw new Error(errorBody?.error || `Worker responded ${response.status}`);
+  }
+  return response.json();
+}
+
 (async function init() {
   const { syncState, recentActivity, settings } = await browser.storage.local.get([
     'syncState',

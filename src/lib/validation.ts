@@ -54,6 +54,22 @@ export function buildFtsMatchQuery(input: string): string | null {
   return tokens.map((t) => `"${t.replace(/"/g, '""')}"*`).join(' ');
 }
 
+/**
+ * Broadens a base FTS5 query with AI-suggested related terms, OR-ed in
+ * alongside it — a bookmark matches if it satisfies the original query
+ * (unchanged AND semantics between its own words) OR any single expansion
+ * term on its own. Same quoting/escaping/prefix-matching as the base query,
+ * for the same reason: user- and model-supplied text alike must never be
+ * able to inject raw FTS5 syntax.
+ */
+export function widenFtsMatchQuery(baseQuery: string, expansionTerms: string[]): string {
+  const terms = expansionTerms.map((t) => t.trim()).filter(Boolean);
+  if (terms.length === 0) return baseQuery;
+
+  const expansionClause = terms.map((t) => `"${t.replace(/"/g, '""')}"*`).join(' OR ');
+  return `(${baseQuery}) OR ${expansionClause}`;
+}
+
 export function safeParseTags(tags: string | null): string[] {
   if (!tags) return [];
   try {
