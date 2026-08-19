@@ -76,10 +76,21 @@ Every route except `/api/v1/health` requires `Authorization: Bearer <API_TOKEN>`
 
 ```sh
 npm install
-npm run dev          # wrangler dev
-npm run typecheck    # tsc --noEmit
-npm run db:init      # apply schema.sql to the local D1 database
+npm run dev            # wrangler dev
+npm run typecheck      # tsc --noEmit
+npm run db:init        # apply schema.sql to the local D1 database
+npm run test:extension # Playwright smoke test — see below
+npm run lint:firefox   # web-ext lint — see below
 ```
+
+## Cross-browser extension testing
+
+Two checks cover Chrome/Edge and Firefox, both run in CI on every push (gating `deploy`) and runnable locally:
+
+- **`npm run test:extension`** (`tests/extension.spec.js`, Playwright) drives the *real* unpacked extension loaded into a persistent Chromium context (Playwright's documented pattern for testing extensions — there's no built-in fixture for it). Checks: the popup loads with no console/page errors and all three tabs (Import/Suggest/Search) switch correctly, the Library page loads cleanly, and the manifest still declares both the Chromium (`background.service_worker`) and Firefox (`background.scripts` + `browser_specific_settings.gecko`) background entry points this project's cross-browser support depends on. The Worker API is mocked (`page.route`) so this never needs, or can accidentally hit, a real backend. Edge isn't driven separately — it shares Chromium's engine and this project's manifest key for it, so a passing Chromium run stands in for it too.
+- **`npm run lint:firefox`** (`web-ext lint`) runs Mozilla's own linter against `manifest.json` and the extension's code for real Firefox/WebExtension incompatibilities (bad manifest keys, deprecated APIs) — used instead of live Firefox browser automation, which has no simple unpacked-extension-loading equivalent to Chromium's `--load-extension` flag and is much less standardized to automate reliably.
+
+Neither script touches `extension/config.js` (gitignored, holds a real API token, and may not even exist — e.g. on a fresh CI checkout): `web-ext lint` only reads `manifest.json`/code, and `tests/fixtures.js` copies `extension/` into a throwaway temp directory and writes a stub `config.js` into *that* copy before loading it, never the real one.
 
 ## Deploying
 

@@ -15,8 +15,26 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
 
+  cross-browser-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      # Chrome/Edge: drives the real unpacked extension in Chromium (Edge
+      # shares its engine and the manifest key this project uses for it).
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:extension
+      # Firefox: not driven live (no equivalent simple "load this unpacked
+      # extension" flag for Firefox automation) — Mozilla's own linter
+      # checks manifest.json/code against Firefox's WebExtension rules
+      # instead, which catches real cross-browser incompatibilities.
+      - run: npm run lint:firefox
+
   deploy:
-    needs: typecheck
+    needs: [typecheck, cross-browser-test]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
