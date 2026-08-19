@@ -77,11 +77,14 @@ Every route except `/api/v1/health` requires `Authorization: Bearer <API_TOKEN>`
 ```sh
 npm install
 npm run dev            # wrangler dev
+npm run build          # wrangler deploy --dry-run — builds the bundle, doesn't publish
 npm run typecheck      # tsc --noEmit
 npm run db:init        # apply schema.sql to the local D1 database
 npm run test:extension # Playwright smoke test — see below
 npm run lint:firefox   # web-ext lint — see below
 ```
+
+CI (`.github/workflows/deploy.yml`) runs `build`, `typecheck`, and the cross-browser checks as independent parallel jobs on every push to `main`; `deploy` only runs once all three succeed.
 
 ## Cross-browser extension testing
 

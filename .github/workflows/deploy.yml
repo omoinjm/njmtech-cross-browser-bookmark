@@ -5,6 +5,19 @@ on:
     branches: [main]
 
 jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      # Builds the Worker bundle without publishing it (no Cloudflare
+      # credentials needed) — catches real bundling failures (bad imports,
+      # unresolvable modules) that type-checking alone wouldn't.
+      - run: npm run build
+
   typecheck:
     runs-on: ubuntu-latest
     steps:
@@ -34,7 +47,7 @@ jobs:
       - run: npm run lint:firefox
 
   deploy:
-    needs: [typecheck, cross-browser-test]
+    needs: [build, typecheck, cross-browser-test]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
