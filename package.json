@@ -10,7 +10,7 @@
     "db:init": "wrangler d1 execute bookmarks-db --file=./schema.sql",
     "db:init:remote": "wrangler d1 execute bookmarks-db --remote --file=./schema.sql",
     "test:extension": "playwright test",
-    "lint:firefox": "web-ext lint --source-dir=extension"
+    "lint:firefox": "[ -f extension/config.js ] || cp extension/config.example.js extension/config.js; web-ext lint --source-dir=extension"
   },
   "dependencies": {
     "@cloudflare/puppeteer": "^0.0.14",
