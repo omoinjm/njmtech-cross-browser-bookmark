@@ -1,0 +1,43 @@
+/* theme.css — shared HackTheBox-style dark palette for popup.html and
+   library.html. Single source of truth so the two pages' tokens can't
+   silently drift out of sync. */
+:root {
+  /* Backgrounds (layered, darkest to lightest) */
+  --bg-page: #0b0f14;
+  --bg-surface: #111a21;
+  --bg-surface-hover: #16212a;
+  --bg-inset: #0d1117;
+
+  /* Accent green (HTB signature) */
+  --accent-green: #9fef00;
+  --accent-green-dim: #6fae1f;
+  --accent-green-glow: rgba(159, 239, 0, 0.35);
+
+  /* Text — green is reserved for accents/CTAs, never body copy */
+  --text-primary: #e6edf3;
+  --text-secondary: #9aa7b0;
+  --text-muted: #5c6773;
+
+  /* Borders */
+  --border-default: #22303a;
+  --border-strong: #2f4550;
+
+  /* Status colors, remapped for dark backgrounds */
+  --status-success: #9fef00;
+  --status-success-bg: rgba(159, 239, 0, 0.12);
+  --status-warning: #ffb84d;
+  --status-warning-bg: rgba(255, 184, 77, 0.12);
+  --status-danger: #ff5c5c;
+  --status-danger-bg: rgba(255, 92, 92, 0.12);
+
+  /* Tags/categories get their own accent so they don't collide with green CTAs */
+  --tag-accent: #7dd3fc;
+  --tag-accent-bg: rgba(125, 211, 252, 0.10);
+
+  /* Search-match highlight */
+  --mark-bg: rgba(159, 239, 0, 0.28);
+  --mark-text: #eaffb0;
+
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", "Segoe UI Mono", "Roboto Mono", Menlo, Consolas, monospace;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}

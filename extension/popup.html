@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Bookmark Sync Engine</title>
+    <link rel="stylesheet" href="theme.css" />
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <h1>Bookmark Sync Engine</h1>
+
+    <button id="import-btn" type="button">Import all bookmarks</button>
+    <button id="library-btn" type="button">View library</button>
+    <p id="progress"></p>
+
+    <label class="setting-row">
+      <input id="suggest-category-toggle" type="checkbox" />
+      Suggest categories for unfiled bookmarks (AI)
+    </label>
+
+    <h2>Recent activity</h2>
+    <ul id="activity-list"></ul>
+    <p id="empty-state">Nothing synced yet.</p>
+
+    <script src="browser-polyfill.js"></script>
+    <script src="popup.js"></script>
+  </body>
+</html>
