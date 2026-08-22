@@ -27,6 +27,14 @@ binding = "AI"
 [browser]
 binding = "BROWSER"
 
+# --- Vectorize (semantic search) -------------------------------------------
+# Create with: wrangler vectorize create bookmarks-embeddings --dimensions=768 --metric=cosine
+# 768 dimensions matches @cf/baai/bge-base-en-v1.5 (see services/embedding-
+# generator.ts) — changing that model means recreating this index.
+[[vectorize]]
+binding    = "VECTORIZE"
+index_name = "bookmarks-embeddings"
+
 [observability]
 enabled = true
 

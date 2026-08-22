@@ -40,10 +40,15 @@ export interface BookmarkRepository {
   /** Re-fetches bookmarks by id to re-validate a bookmark-move suggestion right before applying it. */
   listByIds(ids: number[]): Promise<ReorgBookmarkRow[]>;
   applyBookmarkMoves(moves: Array<{ id: number; category: string }>): Promise<void>;
+  /** Full rows (unlike listByIds' lightweight shape) — used to hydrate semantic search matches. */
+  listBookmarksByIds(ids: number[]): Promise<BookmarkRow[]>;
+  markEmbedded(id: number): Promise<void>;
+  /** Processed bookmarks with no embedding yet, capped at `limit` — feeds POST /admin/backfill-embeddings. */
+  listUnembeddedProcessed(limit: number): Promise<BookmarkRow[]>;
   /** Returns false when no bookmark has this url — the route turns that into a 404. */
   updateByUrl(url: string, fields: UpdateBookmarkFields): Promise<boolean>;
-  /** Returns false when no bookmark has this url — the route turns that into a 404. */
-  deleteByUrl(url: string): Promise<boolean>;
+  /** Returns the deleted bookmark's id (so its embedding can be removed too), or null if no bookmark had this url. */
+  deleteByUrl(url: string): Promise<number | null>;
 }
 
 export class D1BookmarkRepository implements BookmarkRepository {
@@ -241,6 +246,29 @@ export class D1BookmarkRepository implements BookmarkRepository {
     await this.db.batch(statements);
   }
 
+  async listBookmarksByIds(ids: number[]): Promise<BookmarkRow[]> {
+    if (ids.length === 0) return [];
+
+    const placeholders = ids.map(() => '?').join(',');
+    const { results } = await this.db
+      .prepare(`SELECT * FROM bookmarks WHERE id IN (${placeholders})`)
+      .bind(...ids)
+      .all<BookmarkRow>();
+    return results;
+  }
+
+  async markEmbedded(id: number): Promise<void> {
+    await this.db.prepare(`UPDATE bookmarks SET embedded_at = datetime('now') WHERE id = ?`).bind(id).run();
+  }
+
+  async listUnembeddedProcessed(limit: number): Promise<BookmarkRow[]> {
+    const { results } = await this.db
+      .prepare(`SELECT * FROM bookmarks WHERE status = 'processed' AND embedded_at IS NULL LIMIT ?`)
+      .bind(limit)
+      .all<BookmarkRow>();
+    return results;
+  }
+
   // Builds the SET clause from whichever keys are actually present in
   // `fields` — see UpdateBookmarkFields' doc comment for why presence (not
   // truthiness) is what matters here.
@@ -274,8 +302,11 @@ export class D1BookmarkRepository implements BookmarkRepository {
     return result.meta.changes > 0;
   }
 
-  async deleteByUrl(url: string): Promise<boolean> {
-    const result = await this.db.prepare('DELETE FROM bookmarks WHERE url = ?').bind(url).run();
-    return result.meta.changes > 0;
+  async deleteByUrl(url: string): Promise<number | null> {
+    const deleted = await this.db
+      .prepare('DELETE FROM bookmarks WHERE url = ? RETURNING id')
+      .bind(url)
+      .first<{ id: number }>();
+    return deleted?.id ?? null;
   }
 }

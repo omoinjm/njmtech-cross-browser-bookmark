@@ -18,15 +18,22 @@ DROP TABLE IF EXISTS users;
 -- (from the real folder, or an AI suggestion for unfiled bookmarks) and
 -- never overwritten afterward; tags are (re)written by the tagging pipeline.
 CREATE TABLE bookmarks (
-  id         INTEGER PRIMARY KEY AUTOINCREMENT,
-  url        TEXT NOT NULL UNIQUE,
-  title      TEXT,
-  body_text  TEXT,
-  tags       TEXT,                          -- JSON array, e.g. ["ai","tooling"]
-  category   TEXT,                          -- e.g. "Dev Tools/AI APIs & Integrations"
-  status     TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'processed', 'failed')),
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  url          TEXT NOT NULL UNIQUE,
+  title        TEXT,
+  body_text    TEXT,
+  tags         TEXT,                          -- JSON array, e.g. ["ai","tooling"]
+  category     TEXT,                          -- e.g. "Dev Tools/AI APIs & Integrations"
+  status       TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'processed', 'failed')),
+  created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at   TEXT NOT NULL DEFAULT (datetime('now')),
+  -- Set once a semantic-search embedding for this row has been generated and
+  -- stored in Vectorize (see services/embedding-generator.ts and the
+  -- /admin/backfill-embeddings route) — null until then. The embedding
+  -- itself lives only in Vectorize, keyed by this row's id; this column is
+  -- just "has it been done" bookkeeping so a backfill run can skip rows
+  -- that already have one.
+  embedded_at  TEXT
 );
 
 CREATE INDEX idx_bookmarks_status ON bookmarks (status);

@@ -136,6 +136,40 @@ test('library page loads cleanly', async ({ context, extensionId }) => {
   expect(errors, `console/page errors: ${errors.join('; ')}`).toEqual([]);
 });
 
+test('search mode toggle switches search requests between keyword and semantic', async ({ context, extensionId }) => {
+  const page = await context.newPage();
+  const errors = collectErrors(page);
+
+  const requestedModes = [];
+  await page.route('https://example.invalid/api/v1/**', (route) => {
+    const url = new URL(route.request().url());
+    const json = (status, body) =>
+      route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
+
+    if (url.pathname.endsWith('/categories')) return json(200, { categories: [] });
+    if (url.pathname.endsWith('/tags')) return json(200, { tags: [] });
+    if (url.pathname.endsWith('/search')) {
+      requestedModes.push(url.searchParams.get('mode'));
+      return json(200, { query: url.searchParams.get('q'), results: [] });
+    }
+    if (url.pathname.endsWith('/bookmarks')) return json(200, { bookmarks: [] });
+    return json(200, {});
+  });
+
+  await page.goto(`chrome-extension://${extensionId}/library.html`);
+  await page.fill('#search-input', 'docker');
+  await expect.poll(() => requestedModes.length).toBeGreaterThan(0);
+  expect(requestedModes.at(-1)).toBe('keyword'); // default, unchecked
+
+  await page.click('#semantic-search-toggle');
+  await expect.poll(() => requestedModes.at(-1)).toBe('semantic');
+
+  await page.click('#semantic-search-toggle'); // back off
+  await expect.poll(() => requestedModes.at(-1)).toBe('keyword');
+
+  expect(errors, `console/page errors: ${errors.join('; ')}`).toEqual([]);
+});
+
 test('library page can add, edit, and delete a bookmark', async ({ context, extensionId }) => {
   const page = await context.newPage();
   const errors = collectErrors(page);

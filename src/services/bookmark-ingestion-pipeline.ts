@@ -2,6 +2,9 @@ import type { BookmarkRepository } from '../repositories/bookmark-repository';
 import type { PageScraper } from './page-scraper';
 import type { TagGenerator } from './tag-generator';
 import type { CategoryClassifier } from './category-classifier';
+import type { EmbeddingGenerator } from './embedding-generator';
+import type { SemanticIndex } from './semantic-index';
+import { buildEmbeddingInput } from './embedding-generator';
 
 export interface ProcessOptions {
   // Only meaningful when the bookmark had no category at creation time (no
@@ -11,30 +14,36 @@ export interface ProcessOptions {
 }
 
 /**
- * Orchestrates the scrape -> tag -> categorize -> persist pipeline for a
- * single bookmark. Depends only on the repository/scraper/tagger/classifier
- * abstractions (constructor injection), so it's testable with fakes and
- * swappable independently of whatever concrete storage/scraping/tagging/
- * classification backends the route layer wires up at the composition root.
+ * Orchestrates the scrape -> tag -> categorize -> embed -> persist pipeline
+ * for a single bookmark. Depends only on the repository/scraper/tagger/
+ * classifier/embedding abstractions (constructor injection), so it's
+ * testable with fakes and swappable independently of whatever concrete
+ * storage/scraping/tagging/classification/embedding backends the route
+ * layer wires up at the composition root.
  */
 export class BookmarkIngestionPipeline {
   constructor(
     private readonly repository: BookmarkRepository,
     private readonly scraper: PageScraper,
     private readonly tagger: TagGenerator,
-    private readonly categoryClassifier: CategoryClassifier
+    private readonly categoryClassifier: CategoryClassifier,
+    private readonly embeddingGenerator: EmbeddingGenerator,
+    private readonly semanticIndex: SemanticIndex
   ) {}
 
   async process(id: number, url: string, options: ProcessOptions): Promise<void> {
     try {
       const { title, bodyText } = await this.scraper.scrape(url);
       const tags = await this.tagger.generateTags(title, bodyText);
+      const resolvedTitle = title || url;
 
-      await this.repository.markProcessed(id, title || url, bodyText, tags);
+      await this.repository.markProcessed(id, resolvedTitle, bodyText, tags);
 
       if (options.suggestCategory) {
         await this.applyCategorySuggestion(id, title, bodyText);
       }
+
+      await this.indexForSemanticSearch(id, resolvedTitle, bodyText);
     } catch (err) {
       console.error(`[BookmarkIngestionPipeline] failed for bookmark ${id} (${url}):`, err);
       await this.repository.markFailed(id);
@@ -60,6 +69,20 @@ export class BookmarkIngestionPipeline {
     const suggestion = await this.categoryClassifier.classify(title, bodyText, existingCategories);
     if (suggestion) {
       await this.repository.updateCategory(id, suggestion);
+    }
+  }
+
+  // Best-effort: a failed embedding shouldn't fail the whole ingestion — the
+  // bookmark is still fully usable via keyword search either way. Also used
+  // by the /admin/backfill-embeddings route for anything created before
+  // this existed (see that route for why embedded_at makes this idempotent).
+  private async indexForSemanticSearch(id: number, title: string, bodyText: string): Promise<void> {
+    try {
+      const vector = await this.embeddingGenerator.embed(buildEmbeddingInput(title, bodyText));
+      await this.semanticIndex.upsert(id, vector);
+      await this.repository.markEmbedded(id);
+    } catch (err) {
+      console.error(`[BookmarkIngestionPipeline] embedding failed for bookmark ${id}:`, err);
     }
   }
 }

@@ -1,4 +1,5 @@
 const searchInput = document.getElementById('search-input');
+const semanticSearchToggle = document.getElementById('semantic-search-toggle');
 const categoryNavEl = document.getElementById('category-nav');
 const categoryTreeEl = document.getElementById('category-tree');
 const tagNavEl = document.getElementById('tag-nav');
@@ -44,6 +45,15 @@ searchInput.addEventListener('input', debounce(() => {
   offset = 0;
   loadBookmarks({ reset: true });
 }, 300));
+
+// Re-runs immediately (no debounce) on toggle — this isn't the user typing,
+// it's a deliberate mode switch, and only matters while there's a query.
+semanticSearchToggle.addEventListener('change', () => {
+  if (searchInput.value.trim()) {
+    offset = 0;
+    loadBookmarks({ reset: true });
+  }
+});
 
 loadMoreBtn.addEventListener('click', () => loadBookmarks({ reset: false }));
 
@@ -345,11 +355,13 @@ async function loadBookmarks({ reset }) {
     let mayHaveMore = false;
 
     if (query) {
-      const data = await apiGet(`/search?q=${encodeURIComponent(query)}`);
+      const mode = semanticSearchToggle.checked ? 'semantic' : 'keyword';
+      const data = await apiGet(`/search?q=${encodeURIComponent(query)}&mode=${mode}`);
       bookmarks = data.results || [];
       statusLineEl.textContent = `${bookmarks.length} result(s) for "${query}"`;
       // Surfaces what the AI query-expander added, rather than silently
-      // widening the search behind the scenes — see search.ts.
+      // widening the search behind the scenes — see search.ts. Semantic
+      // mode never returns this (there's no keyword query to expand).
       if (data.expandedTerms?.length) {
         statusLineEl.textContent += ` — AI also searched: ${data.expandedTerms.join(', ')}`;
       }

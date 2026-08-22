@@ -10,6 +10,10 @@
     <header>
       <h1>Bookmark Library</h1>
       <input id="search-input" type="search" placeholder="Search bookmarks…" autocomplete="off" />
+      <label class="search-mode-toggle" title="Semantic search — finds bookmarks by meaning, not just matching words">
+        <input id="semantic-search-toggle" type="checkbox" />
+        AI search
+      </label>
       <div class="header-actions">
         <button id="import-file-btn" class="header-btn" type="button">Import file</button>
         <input id="import-file-input" type="file" accept=".html,text/html" hidden />

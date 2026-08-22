@@ -1,8 +1,11 @@
 /**
  * Bindings declared in wrangler.toml:
  *  - DB:        D1 database (bookmarks + bookmarks_fts)
- *  - AI:        Workers AI, used for auto-tagging
+ *  - AI:        Workers AI, used for auto-tagging and embeddings
  *  - BROWSER:   Browser Rendering, used to scrape title/body text
+ *  - VECTORIZE: Vectorize index storing one embedding per processed
+ *    bookmark, used for semantic search — see services/embedding-generator.ts
+ *    and services/semantic-index.ts.
  *  - USER_ACTOR: Durable Object namespace (class UserActor) — one instance
  *    per user, serializing that user's Drive/OneDrive file writes and
  *    tracking their fair-use AI rate limit.
@@ -20,6 +23,7 @@ export interface Env {
   DB: D1Database;
   AI: Ai;
   BROWSER: Fetcher;
+  VECTORIZE: VectorizeIndex;
   USER_ACTOR: DurableObjectNamespace;
   API_TOKEN: string;
   GOOGLE_CLIENT_ID: string;
@@ -41,6 +45,12 @@ export interface BookmarkRow {
   status: BookmarkStatus;
   created_at: string;
   updated_at: string;
+  // Set once a semantic-search embedding has been generated and stored in
+  // Vectorize (see BookmarkIngestionPipeline and the /admin/backfill-
+  // embeddings route) — null for anything created before that existed, or
+  // still pending/failed. Not the embedding vector itself, which lives only
+  // in Vectorize, keyed by this row's id.
+  embedded_at: string | null;
 }
 
 export interface BookmarkSearchResult extends BookmarkRow {

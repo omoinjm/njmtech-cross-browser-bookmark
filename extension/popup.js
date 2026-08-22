@@ -244,6 +244,7 @@ function closeReorgPanel() {
 // into the full Library page, same as the Ctrl+D suggestion notification does).
 
 const searchInput = document.getElementById('search-input');
+const semanticSearchToggle = document.getElementById('semantic-search-toggle');
 const searchStatusEl = document.getElementById('search-status');
 const searchResultsEl = document.getElementById('search-results');
 
@@ -251,6 +252,10 @@ searchInput.addEventListener(
   'input',
   debounce(() => runSearch(searchInput.value.trim()), 300)
 );
+
+// Re-runs immediately (no debounce) on toggle — this isn't the user typing,
+// it's a deliberate mode switch, and the existing query is already known.
+semanticSearchToggle.addEventListener('change', () => runSearch(searchInput.value.trim()));
 
 async function runSearch(query) {
   if (!query) {
@@ -260,11 +265,13 @@ async function runSearch(query) {
   }
 
   try {
-    const data = await apiGet(`/search?q=${encodeURIComponent(query)}`);
+    const mode = semanticSearchToggle.checked ? 'semantic' : 'keyword';
+    const data = await apiGet(`/search?q=${encodeURIComponent(query)}&mode=${mode}`);
     const results = data.results || [];
     searchStatusEl.textContent = `${results.length} result(s) for "${query}"`;
     // Surfaces what the AI query-expander added, rather than silently
-    // widening the search behind the scenes — see search.ts.
+    // widening the search behind the scenes — see search.ts. Semantic mode
+    // never returns this (there's no keyword query to expand).
     if (data.expandedTerms?.length) {
       searchStatusEl.textContent += ` — AI also searched: ${data.expandedTerms.join(', ')}`;
     }

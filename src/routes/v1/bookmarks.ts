@@ -199,12 +199,17 @@ bookmarks.delete('/', async (c) => {
     return c.json({ error: 'A valid "url" query parameter is required' }, 400);
   }
 
-  const { repository } = c.get('deps');
-  const deleted = await repository.deleteByUrl(url);
+  const { repository, semanticIndex } = c.get('deps');
+  const deletedId = await repository.deleteByUrl(url);
 
-  if (!deleted) {
+  if (!deletedId) {
     return c.json({ error: 'Not found' }, 404);
   }
+
+  // Best-effort: the bookmark row is already gone either way, and a stray
+  // leftover vector can't surface anything since semantic search hydrates
+  // matches from D1 — a deleted id just won't resolve to a row.
+  await semanticIndex.delete(deletedId).catch((err) => console.error('[bookmarks] Failed to remove embedding:', err));
 
   return c.json({ ok: true });
 });

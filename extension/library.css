@@ -88,6 +88,26 @@ header h1::before {
   box-shadow: 0 0 0 1px var(--accent-green), 0 0 8px var(--accent-green-glow);
 }
 
+.search-mode-toggle {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.search-mode-toggle:hover {
+  color: var(--text-primary);
+}
+
+.search-mode-toggle input[type='checkbox'] {
+  accent-color: var(--accent-green);
+}
+
 .header-actions {
   display: flex;
   flex-shrink: 0;

@@ -11,6 +11,8 @@ import { WebCryptoTokenCipher, type TokenCipher } from './services/token-cipher'
 import { GoogleOAuthProvider } from './services/oauth/google-oauth';
 import { MicrosoftOAuthProvider } from './services/oauth/microsoft-oauth';
 import type { OAuthProvider } from './services/oauth/oauth-provider';
+import { WorkersAiEmbeddingGenerator, type EmbeddingGenerator } from './services/embedding-generator';
+import { VectorizeSemanticIndex, type SemanticIndex } from './services/semantic-index';
 import { BookmarkIngestionPipeline } from './services/bookmark-ingestion-pipeline';
 
 /**
@@ -24,6 +26,8 @@ export interface Dependencies {
   pipeline: BookmarkIngestionPipeline;
   categoryReorganizer: CategoryReorganizer;
   searchQueryExpander: SearchQueryExpander;
+  embeddingGenerator: EmbeddingGenerator;
+  semanticIndex: SemanticIndex;
   userRepository: UserRepository;
   sessionRepository: SessionRepository;
   tokenCipher: TokenCipher;
@@ -38,7 +42,16 @@ export function buildDependencies(env: Env): Dependencies {
   const categoryClassifier: CategoryClassifier = new WorkersAiCategoryClassifier(env.AI);
   const categoryReorganizer: CategoryReorganizer = new WorkersAiCategoryReorganizer(env.AI);
   const searchQueryExpander: SearchQueryExpander = new WorkersAiSearchQueryExpander(env.AI);
-  const pipeline = new BookmarkIngestionPipeline(repository, scraper, tagger, categoryClassifier);
+  const embeddingGenerator: EmbeddingGenerator = new WorkersAiEmbeddingGenerator(env.AI);
+  const semanticIndex: SemanticIndex = new VectorizeSemanticIndex(env.VECTORIZE);
+  const pipeline = new BookmarkIngestionPipeline(
+    repository,
+    scraper,
+    tagger,
+    categoryClassifier,
+    embeddingGenerator,
+    semanticIndex
+  );
 
   const userRepository: UserRepository = new D1UserRepository(env.DB);
   const sessionRepository: SessionRepository = new D1SessionRepository(env.DB);
@@ -51,6 +64,8 @@ export function buildDependencies(env: Env): Dependencies {
     pipeline,
     categoryReorganizer,
     searchQueryExpander,
+    embeddingGenerator,
+    semanticIndex,
     userRepository,
     sessionRepository,
     tokenCipher,
