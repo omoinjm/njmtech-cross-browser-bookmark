@@ -97,8 +97,10 @@ function switchTab(name) {
 
 // --- AI-suggested category reorganization ---
 //
-// Analyzes the whole current category list at once (not per-bookmark) and
-// proposes renames/merges for poorly-organized ones. Suggest-only: nothing
+// Analyzes the whole current category list AND every categorized bookmark's
+// title, proposing two kinds of fixes: renaming/merging a whole poorly-named
+// category, or moving one individually misfiled bookmark into a different
+// existing category (see category-reorganizer.ts). Suggest-only: nothing
 // changes until the user reviews and clicks Apply, which sends back only the
 // checked entries. Ported from the Library page, which no longer has its own
 // copy of this feature.
@@ -158,6 +160,17 @@ function renderReorgSuggestions() {
     const body = document.createElement('div');
     body.className = 'reorg-item-body';
 
+    if (suggestion.type === 'bookmark') {
+      // Distinguishes an individual misfiled-bookmark move from a
+      // whole-category rename — without this, "Dev Tools/AI ▸ Dev Tools"
+      // reads identically for both, but only one of them affects every
+      // other bookmark in that category.
+      const title = document.createElement('div');
+      title.className = 'reorg-bookmark-title';
+      title.textContent = suggestion.title || suggestion.url;
+      body.appendChild(title);
+    }
+
     const paths = document.createElement('div');
     paths.className = 'reorg-paths';
     const from = document.createElement('span');
@@ -199,8 +212,11 @@ async function applySelectedReorg() {
   reorgStatusEl.textContent = 'Applying…';
 
   try {
-    const mapping = selected.map(({ from, to }) => ({ from, to }));
-    const data = await apiPost('/categories/reorganize', { mapping });
+    // Sent back verbatim — the server only reads type/from/to/bookmarkId
+    // from each entry and ignores the rest (title/url/reason), and
+    // re-validates everything against current state anyway (see
+    // categories.ts's /reorganize).
+    const data = await apiPost('/categories/reorganize', { items: selected });
     reorgStatusEl.textContent = `Applied ${data.applied} change(s).`;
     reorgListEl.innerHTML = '';
     reorgActionsEl.hidden = true;

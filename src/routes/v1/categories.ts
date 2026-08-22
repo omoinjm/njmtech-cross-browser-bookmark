@@ -22,33 +22,50 @@ categories.get('/', async (c) => {
   return c.json({ categories: results });
 });
 
+// Caps how many categorized bookmarks get fed into one reorg-suggestion
+// prompt, bounding both the DB read and the prompt size for a very large
+// library — see BookmarkRepository.listForReorg.
+const MAX_REORG_BOOKMARKS = 500;
+
 /**
  * POST /api/v1/categories/suggest-reorganization
- * Read-only: analyzes the current category list as a whole and proposes
- * renames/merges for poorly-organized ones (see category-reorganizer.ts).
- * Nothing is changed by this call — see /reorganize to actually apply a
- * mapping.
+ * Read-only: analyzes the current category list AND every categorized
+ * bookmark's title, proposing both whole-category renames/merges and
+ * individual misfiled-bookmark moves (see category-reorganizer.ts). Nothing
+ * is changed by this call — see /reorganize to actually apply suggestions.
  */
 categories.post('/suggest-reorganization', async (c) => {
   const { repository, categoryReorganizer } = c.get('deps');
-  const currentCategories = await repository.listCategories();
-  const suggestions = await categoryReorganizer.suggest(currentCategories);
+  const [currentCategories, candidateBookmarks] = await Promise.all([
+    repository.listCategories(),
+    repository.listForReorg(MAX_REORG_BOOKMARKS),
+  ]);
+  const suggestions = await categoryReorganizer.suggest(currentCategories, candidateBookmarks);
   return c.json({ suggestions });
 });
 
 const MAX_REORG_BODY_BYTES = 64 * 1024;
-const MAX_REORG_MAPPING_SIZE = 200;
+const MAX_REORG_ITEMS = 200;
+
+interface ReorgApplyItem {
+  type?: string;
+  from?: string;
+  to?: string;
+  bookmarkId?: number;
+}
 
 /**
  * POST /api/v1/categories/reorganize
- * Body: { mapping: [{ from: string, to: string }, ...] }
+ * Body: { items: [{ type: "category", from, to } | { type: "bookmark", bookmarkId, to }, ...] }
  *
- * Applies a reorganization mapping — normally the (possibly user-edited)
- * output of /suggest-reorganization. Every `from` is re-validated against
- * the CURRENT category list (not trusted from the request), since categories
- * may have changed between generating a suggestion and applying it; entries
- * that no longer match a real category are silently dropped rather than
- * erroring the whole request.
+ * Applies a mix of category-level and bookmark-level entries — normally the
+ * (possibly user-edited) output of /suggest-reorganization, sent back
+ * verbatim. Every entry is re-validated against the CURRENT state (never
+ * trusted from the request): a category `from` must still be a real
+ * category, a bookmark's `to` must be a real category the bookmark isn't
+ * already in. Entries that no longer validate are silently dropped rather
+ * than erroring the whole request, since categories/bookmarks may have
+ * changed between generating a suggestion and applying it.
  */
 categories.post(
   '/reorganize',
@@ -57,35 +74,55 @@ categories.post(
     onError: (c) => c.json({ error: 'Request body too large' }, 413),
   }),
   async (c) => {
-    const payload = await c.req.json<{ mapping?: Array<{ from?: string; to?: string }> }>().catch(() => null);
-    const rawMapping = payload?.mapping;
+    const payload = await c.req.json<{ items?: ReorgApplyItem[] }>().catch(() => null);
+    const rawItems = payload?.items;
 
-    if (!Array.isArray(rawMapping) || rawMapping.length === 0) {
-      return c.json({ error: 'A non-empty "mapping" array is required' }, 400);
+    if (!Array.isArray(rawItems) || rawItems.length === 0) {
+      return c.json({ error: 'A non-empty "items" array is required' }, 400);
     }
-    if (rawMapping.length > MAX_REORG_MAPPING_SIZE) {
-      return c.json({ error: `A maximum of ${MAX_REORG_MAPPING_SIZE} mapping entries is supported` }, 400);
+    if (rawItems.length > MAX_REORG_ITEMS) {
+      return c.json({ error: `A maximum of ${MAX_REORG_ITEMS} entries is supported` }, 400);
     }
 
     const { repository } = c.get('deps');
     const currentCategories = await repository.listCategories();
-    const validFrom = new Set(currentCategories.map((c) => c.category));
+    const validCategoryNames = new Set(currentCategories.map((cat) => cat.category));
 
-    const mapping = rawMapping
+    const categoryMapping = rawItems
+      .filter((item) => item?.type === 'category')
       .map((item) => ({
-        from: item?.from?.trim() ?? '',
-        to: item?.to?.trim().slice(0, MAX_CATEGORY_CHARS) ?? '',
+        from: item.from?.trim() ?? '',
+        to: item.to?.trim().slice(0, MAX_CATEGORY_CHARS) ?? '',
       }))
-      .filter((item) => validFrom.has(item.from) && item.to.length > 0 && item.to !== item.from);
+      .filter((item) => validCategoryNames.has(item.from) && item.to.length > 0 && item.to !== item.from);
 
-    if (mapping.length === 0) {
+    const bookmarkItems = rawItems.filter((item) => item?.type === 'bookmark');
+    const bookmarkIds = bookmarkItems
+      .map((item) => Number(item.bookmarkId))
+      .filter((id) => Number.isInteger(id));
+    const bookmarksById = new Map((await repository.listByIds(bookmarkIds)).map((b) => [b.id, b]));
+
+    const bookmarkMoves = bookmarkItems
+      .map((item) => ({
+        id: Number(item.bookmarkId),
+        to: item.to?.trim().slice(0, MAX_CATEGORY_CHARS) ?? '',
+      }))
+      .filter((item) => {
+        const bookmark = bookmarksById.get(item.id);
+        return Boolean(bookmark) && item.to.length > 0 && validCategoryNames.has(item.to) && item.to !== bookmark!.category;
+      })
+      .map((item) => ({ id: item.id, category: item.to }));
+
+    if (categoryMapping.length === 0 && bookmarkMoves.length === 0) {
       return c.json(
-        { error: 'No valid mapping entries — categories may have changed since the suggestion was generated' },
+        { error: 'No valid entries — categories or bookmarks may have changed since the suggestion was generated' },
         400
       );
     }
 
-    await repository.applyReorganization(mapping);
-    return c.json({ applied: mapping.length });
+    await repository.applyReorganization(categoryMapping);
+    await repository.applyBookmarkMoves(bookmarkMoves);
+
+    return c.json({ applied: categoryMapping.length + bookmarkMoves.length });
   }
 );

@@ -88,6 +88,151 @@ header h1::before {
   box-shadow: 0 0 0 1px var(--accent-green), 0 0 8px var(--accent-green-glow);
 }
 
+.header-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.header-btn {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 7px 14px;
+  cursor: pointer;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: 0;
+}
+
+.header-btn:hover {
+  border-color: var(--accent-green-dim);
+  color: var(--accent-green);
+}
+
+.header-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1px var(--accent-green);
+}
+
+#add-bookmark-btn {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 7px 14px;
+  cursor: pointer;
+  background: transparent;
+  color: var(--accent-green);
+  border: 1px solid var(--accent-green);
+  border-radius: 0;
+}
+
+#add-bookmark-btn:hover {
+  background: var(--accent-green);
+  color: var(--bg-page);
+  box-shadow: 0 0 8px var(--accent-green-glow);
+}
+
+#add-bookmark-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1px var(--accent-green), 0 0 8px var(--accent-green-glow);
+}
+
+.add-bookmark-panel {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 16px 20px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-default);
+}
+
+.add-bookmark-panel[hidden] {
+  display: none;
+}
+
+/* Shared by the add-bookmark panel above and each card's inline edit form
+   below — one input style so an edit doesn't visually feel like a different
+   feature from adding. */
+.form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.form-row input {
+  font: 13px/1.4 var(--font-sans);
+  padding: 7px 10px;
+  color: var(--text-primary);
+  background: var(--bg-inset);
+  border: 1px solid var(--border-default);
+  border-radius: 0;
+}
+
+.form-row input:focus {
+  outline: none;
+  border-color: var(--accent-green);
+  box-shadow: 0 0 0 1px var(--accent-green);
+}
+
+.form-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.form-actions span {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.form-actions button {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 6px 14px;
+  border-radius: 0;
+  cursor: pointer;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-default);
+}
+
+.form-actions button:hover {
+  border-color: var(--accent-green-dim);
+  color: var(--text-primary);
+}
+
+.form-actions button[type="submit"] {
+  color: var(--accent-green);
+  border-color: var(--accent-green);
+}
+
+.form-actions button[type="submit"]:hover {
+  background: var(--accent-green);
+  color: var(--bg-page);
+  box-shadow: 0 0 8px var(--accent-green-glow);
+}
+
 .layout {
   display: flex;
   align-items: flex-start;
@@ -534,6 +679,65 @@ main {
 .tag-pill:focus-visible {
   outline: none;
   box-shadow: 0 0 0 1px var(--tag-accent);
+}
+
+.card-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.btn-ghost {
+  background: none;
+  border: 1px solid var(--border-default);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 3px 10px;
+  border-radius: 0;
+  cursor: pointer;
+}
+
+.btn-ghost:hover {
+  border-color: var(--accent-green-dim);
+  color: var(--accent-green);
+}
+
+.btn-ghost.btn-danger:hover {
+  border-color: var(--status-danger);
+  color: var(--status-danger);
+}
+
+.btn-ghost:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1px var(--accent-green);
+}
+
+/* Editing a card dims its display content (rather than hiding it) so the
+   context you're editing stays visible instead of the layout jumping. */
+.bookmark-card .edit-form {
+  display: none;
+}
+
+.bookmark-card.editing > .title-row,
+.bookmark-card.editing > .url,
+.bookmark-card.editing > .category-label,
+.bookmark-card.editing > .snippet,
+.bookmark-card.editing > .tag-pills {
+  opacity: 0.35;
+}
+
+.bookmark-card.editing .edit-form {
+  display: block;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border-default);
+}
+
+.edit-form .form-row {
+  margin-bottom: 8px;
 }
 
 #empty-state {

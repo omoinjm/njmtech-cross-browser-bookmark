@@ -241,6 +241,17 @@ button.tab-btn:hover {
   flex: 1 1 auto;
 }
 
+.reorg-bookmark-title {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .reorg-paths {
   font-family: var(--font-mono);
   font-size: 12px;

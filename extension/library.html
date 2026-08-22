@@ -10,7 +10,39 @@
     <header>
       <h1>Bookmark Library</h1>
       <input id="search-input" type="search" placeholder="Search bookmarks…" autocomplete="off" />
+      <div class="header-actions">
+        <button id="import-file-btn" class="header-btn" type="button">Import file</button>
+        <input id="import-file-input" type="file" accept=".html,text/html" hidden />
+        <button id="export-btn" class="header-btn" type="button">Export</button>
+        <button id="add-bookmark-btn" type="button">+ Add</button>
+      </div>
     </header>
+
+    <!-- Adds to the Library directly, then mirrors it into this browser's
+         native bookmarks (see background.js's writeNativeCreate). The
+         reverse direction — a native bookmark syncing to the Library — is
+         background.js's onCreated listener. -->
+    <form id="add-bookmark-form" class="add-bookmark-panel" hidden>
+      <label class="form-row">
+        <span>URL</span>
+        <input id="add-url" type="url" required placeholder="https://…" autocomplete="off" />
+      </label>
+      <label class="form-row">
+        <span>Title</span>
+        <input id="add-title" type="text" placeholder="(optional — scraped automatically if left blank)" autocomplete="off" />
+      </label>
+      <label class="form-row">
+        <span>Category</span>
+        <input id="add-category" type="text" list="category-options" placeholder="(optional, e.g. Dev Tools/AI)" autocomplete="off" />
+      </label>
+      <div class="form-actions">
+        <span id="add-status"></span>
+        <button type="button" id="add-cancel-btn">Cancel</button>
+        <button type="submit" id="add-submit-btn">Add bookmark</button>
+      </div>
+    </form>
+
+    <datalist id="category-options"></datalist>
 
     <p id="import-banner" hidden></p>
 

@@ -4,6 +4,9 @@
 
 DROP TABLE IF EXISTS bookmarks_fts;
 DROP TABLE IF EXISTS bookmarks;
+DROP TABLE IF EXISTS sessions;
+DROP TABLE IF EXISTS oauth_accounts;
+DROP TABLE IF EXISTS users;
 
 -- Main table. `status` tracks the async scrape/tag pipeline so the API can
 -- return instantly on POST and let waitUntil() fill in the rest later.
@@ -63,3 +66,42 @@ CREATE TRIGGER bookmarks_au AFTER UPDATE ON bookmarks BEGIN
   INSERT INTO bookmarks_fts (rowid, title, body_text, tags, category)
   VALUES (new.id, new.title, new.body_text, new.tags, new.category);
 END;
+
+-- Multi-tenant auth (see migrations/0002_add_users_and_sessions.sql for the
+-- non-destructive version of this against an existing live database).
+CREATE TABLE users (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  email      TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- One row per (provider, provider account) a user has signed in with.
+-- Refresh tokens are stored encrypted (AES-256-GCM via
+-- services/token-cipher.ts) — never in plaintext.
+CREATE TABLE oauth_accounts (
+  id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id                  INTEGER NOT NULL REFERENCES users(id),
+  provider                 TEXT NOT NULL CHECK (provider IN ('google', 'microsoft')),
+  provider_account_id      TEXT NOT NULL,
+  refresh_token_ciphertext TEXT NOT NULL,
+  refresh_token_iv         TEXT NOT NULL,
+  scope                    TEXT NOT NULL,
+  created_at               TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at               TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (provider, provider_account_id)
+);
+
+-- Opaque bearer session tokens the extension authenticates with. Only the
+-- SHA-256 hash of the token is stored — the raw token is returned to the
+-- client exactly once, at sign-in.
+CREATE TABLE sessions (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id    INTEGER NOT NULL REFERENCES users(id),
+  token_hash TEXT NOT NULL UNIQUE,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX idx_oauth_accounts_user_id ON oauth_accounts (user_id);
+CREATE INDEX idx_sessions_user_id ON sessions (user_id);
+CREATE INDEX idx_sessions_expires_at ON sessions (expires_at);

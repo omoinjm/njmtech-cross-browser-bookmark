@@ -7,6 +7,18 @@ const emptyStateEl = document.getElementById('empty-state');
 const statusLineEl = document.getElementById('status-line');
 const loadMoreBtn = document.getElementById('load-more-btn');
 const importBannerEl = document.getElementById('import-banner');
+const addBookmarkBtn = document.getElementById('add-bookmark-btn');
+const addBookmarkForm = document.getElementById('add-bookmark-form');
+const addUrlInput = document.getElementById('add-url');
+const addTitleInput = document.getElementById('add-title');
+const addCategoryInput = document.getElementById('add-category');
+const addCancelBtn = document.getElementById('add-cancel-btn');
+const addSubmitBtn = document.getElementById('add-submit-btn');
+const addStatusEl = document.getElementById('add-status');
+const categoryOptionsEl = document.getElementById('category-options');
+const exportBtn = document.getElementById('export-btn');
+const importFileBtn = document.getElementById('import-file-btn');
+const importFileInput = document.getElementById('import-file-input');
 
 const PAGE_SIZE = 50;
 
@@ -36,6 +48,57 @@ searchInput.addEventListener('input', debounce(() => {
 loadMoreBtn.addEventListener('click', () => loadBookmarks({ reset: false }));
 
 categoryNavEl.querySelector('.nav-btn[data-category=""]').addEventListener('click', () => selectCategory(''));
+
+addBookmarkBtn.addEventListener('click', () => {
+  const wasHidden = addBookmarkForm.hidden;
+  addBookmarkForm.hidden = !wasHidden;
+  if (wasHidden) addUrlInput.focus();
+});
+
+addCancelBtn.addEventListener('click', closeAddForm);
+
+function closeAddForm() {
+  addBookmarkForm.hidden = true;
+  addBookmarkForm.reset();
+  addStatusEl.textContent = '';
+}
+
+addBookmarkForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+
+  const url = addUrlInput.value.trim();
+  if (!url) return;
+
+  addSubmitBtn.disabled = true;
+  addStatusEl.textContent = 'Adding…';
+
+  try {
+    const body = { url };
+    const title = addTitleInput.value.trim();
+    const category = addCategoryInput.value.trim();
+    if (title) body.title = title;
+    if (category) body.category = category;
+
+    // No `tags` field — the create endpoint doesn't accept one (tags come
+    // from the async AI-tagging pipeline, which would overwrite a
+    // manually-supplied value once it finishes anyway). Add tags via Edit
+    // once the bookmark has finished processing.
+    await apiPost('/bookmarks', body);
+    closeAddForm();
+    await refreshAfterMutation();
+
+    // Mirrors this into the browser's native bookmarks too — see
+    // background.js's writeNativeCreate. Fire-and-forget: the Worker POST
+    // above already succeeded and is this bookmark's source of truth, so the
+    // Library shouldn't wait on (or fail because of) the native mirror.
+    notifyNativeWrite('native-create', { url, title: title || null, category: category || null });
+  } catch (err) {
+    console.error('[Library] Failed to add bookmark:', err);
+    addStatusEl.textContent = `Failed to add: ${err.message}`;
+  } finally {
+    addSubmitBtn.disabled = false;
+  }
+});
 
 document.querySelectorAll('#sidebar h2.collapsible').forEach((heading) => {
   heading.addEventListener('click', () => {
@@ -102,12 +165,22 @@ async function init() {
   renderImportBanner(syncState);
   await Promise.all([loadCategories(), loadTags()]);
 
+  const params = new URLSearchParams(location.search);
+
   // Supports the "Suggested category" notification's deep link
   // (background.js's notifications.onClicked) — opens straight into that
   // category's filtered view instead of "All".
-  const deepLinkCategory = new URLSearchParams(location.search).get('category');
+  const deepLinkCategory = params.get('category');
+  // Supports the omnibox's "lib <query>" Enter-without-a-suggestion case
+  // (background.js's omnibox.onInputEntered) — opens straight into that
+  // search instead of "All".
+  const deepLinkSearch = params.get('search');
+
   if (deepLinkCategory) {
     selectCategory(deepLinkCategory);
+  } else if (deepLinkSearch) {
+    searchInput.value = deepLinkSearch;
+    await loadBookmarks({ reset: true });
   } else {
     await loadBookmarks({ reset: true });
   }
@@ -118,8 +191,21 @@ async function loadCategories() {
     const data = await apiGet('/categories');
     lastCategoryCounts = data.categories || [];
     renderCategoryTree();
+    renderCategoryOptions();
   } catch (err) {
     console.error('[Library] Failed to load categories:', err);
+  }
+}
+
+// Feeds the add/edit forms' category <input list="category-options"> so
+// picking an existing category is a suggestion away, without forcing one —
+// free text is still allowed, same as the real folder paths this mirrors.
+function renderCategoryOptions() {
+  categoryOptionsEl.innerHTML = '';
+  for (const { category } of lastCategoryCounts) {
+    const option = document.createElement('option');
+    option.value = category;
+    categoryOptionsEl.appendChild(option);
   }
 }
 
@@ -425,7 +511,309 @@ function renderCard(bookmark) {
     li.appendChild(pills);
   }
 
+  li.appendChild(renderCardActions(li, bookmark));
+  li.appendChild(renderEditForm(li, bookmark));
+
   return li;
+}
+
+function renderCardActions(li, bookmark) {
+  const actions = document.createElement('div');
+  actions.className = 'card-actions';
+
+  const editBtn = document.createElement('button');
+  editBtn.type = 'button';
+  editBtn.className = 'btn-ghost';
+  editBtn.textContent = 'Edit';
+  editBtn.addEventListener('click', () => li.classList.toggle('editing'));
+  actions.appendChild(editBtn);
+
+  const deleteBtn = document.createElement('button');
+  deleteBtn.type = 'button';
+  deleteBtn.className = 'btn-ghost btn-danger';
+  deleteBtn.textContent = 'Delete';
+  deleteBtn.addEventListener('click', () => deleteCard(bookmark));
+  actions.appendChild(deleteBtn);
+
+  return actions;
+}
+
+async function deleteCard(bookmark) {
+  const confirmed = confirm(
+    `Delete "${bookmark.title || bookmark.url}"?\n\nThis removes it from the Library — and from your native bookmarks in this browser too, if it's bookmarked there.`
+  );
+  if (!confirmed) return;
+
+  try {
+    await apiDelete(`/bookmarks?url=${encodeURIComponent(bookmark.url)}`);
+    await refreshAfterMutation();
+    notifyNativeWrite('native-delete', { url: bookmark.url });
+  } catch (err) {
+    console.error('[Library] Failed to delete bookmark:', err);
+    alert(`Failed to delete: ${err.message}`);
+  }
+}
+
+// Built once per card (hidden until "Edit" toggles the .editing class on the
+// <li>) rather than swapped in/out of the DOM — keeps the edit/cancel/save
+// wiring a plain closure over `bookmark`/`li` instead of needing separate
+// render-mode state tracked elsewhere.
+function renderEditForm(li, bookmark) {
+  const form = document.createElement('form');
+  form.className = 'edit-form';
+
+  const titleField = buildFormRow('Title', bookmark.title || '');
+  const categoryField = buildFormRow('Category', bookmark.category || '', { list: 'category-options' });
+  const tagsField = buildFormRow('Tags', (bookmark.tags || []).join(', '), { placeholder: 'comma, separated' });
+
+  form.append(titleField.row, categoryField.row, tagsField.row);
+
+  const statusEl = document.createElement('span');
+
+  const cancelBtn = document.createElement('button');
+  cancelBtn.type = 'button';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.addEventListener('click', () => li.classList.remove('editing'));
+
+  const saveBtn = document.createElement('button');
+  saveBtn.type = 'submit';
+  saveBtn.textContent = 'Save';
+
+  const actions = document.createElement('div');
+  actions.className = 'form-actions';
+  actions.append(statusEl, cancelBtn, saveBtn);
+  form.appendChild(actions);
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    saveBtn.disabled = true;
+    statusEl.textContent = 'Saving…';
+
+    try {
+      const title = titleField.input.value.trim() || null;
+      const category = categoryField.input.value.trim() || null;
+      const tags = tagsField.input.value
+        .split(',')
+        .map((tag) => tag.trim())
+        .filter(Boolean);
+
+      await apiPatch(`/bookmarks?url=${encodeURIComponent(bookmark.url)}`, { title, category, tags });
+
+      li.classList.remove('editing');
+      await refreshAfterMutation();
+      // Tags have no native-bookmark equivalent — only title/category mirror.
+      notifyNativeWrite('native-update', { url: bookmark.url, title, category });
+    } catch (err) {
+      console.error('[Library] Failed to save bookmark edit:', err);
+      statusEl.textContent = `Failed: ${err.message}`;
+      saveBtn.disabled = false;
+    }
+  });
+
+  return form;
+}
+
+function buildFormRow(labelText, value, extraAttrs = {}) {
+  const row = document.createElement('label');
+  row.className = 'form-row';
+
+  const span = document.createElement('span');
+  span.textContent = labelText;
+  row.appendChild(span);
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.value = value;
+  input.autocomplete = 'off';
+  for (const [key, val] of Object.entries(extraAttrs)) {
+    input.setAttribute(key, val);
+  }
+  row.appendChild(input);
+
+  return { row, input };
+}
+
+// --- Export / Import file (Phase 5) ---
+//
+// Lets people get their data OUT (standard Netscape bookmarks.html, openable
+// by literally every browser and bookmark tool) and IN from anywhere that
+// format comes from — another browser profile, a different bookmark
+// manager, an old backup — not just from this browser's live native tree
+// (that's the existing popup "Import" button, which walks browser.bookmarks
+// directly). A tool that only accepts data one way in isn't a real
+// replacement for native bookmarks.
+
+exportBtn.addEventListener('click', () => {
+  exportBookmarksHtml().catch((err) => {
+    console.error('[Library] Export failed:', err);
+    alert(`Export failed: ${err.message}`);
+  });
+});
+
+const EXPORT_PAGE_SIZE = 200; // matches the server's MAX_LIST_LIMIT
+
+async function exportBookmarksHtml() {
+  exportBtn.disabled = true;
+  exportBtn.textContent = 'Exporting…';
+
+  try {
+    const bookmarks = await fetchAllBookmarksForExport();
+    const html = buildExportHtml(bookmarks);
+    const filename = `bookmarks-${new Date().toISOString().slice(0, 10)}.html`;
+    downloadFile(filename, html, 'text/html');
+  } finally {
+    exportBtn.disabled = false;
+    exportBtn.textContent = 'Export';
+  }
+}
+
+async function fetchAllBookmarksForExport() {
+  const all = [];
+  let fetchOffset = 0;
+
+  while (true) {
+    const data = await apiGet(`/bookmarks?limit=${EXPORT_PAGE_SIZE}&offset=${fetchOffset}`);
+    const rows = data.bookmarks || [];
+    all.push(...rows);
+    if (rows.length < EXPORT_PAGE_SIZE) break;
+    fetchOffset += EXPORT_PAGE_SIZE;
+  }
+
+  return all;
+}
+
+// Builds a standard Netscape bookmarks.html document, grouping bookmarks by
+// their slash-joined category into real nested <DL> folders — the inverse of
+// how background.js's collectSyncableBookmarks derives a category from real
+// folders on the way in.
+function buildExportHtml(bookmarks) {
+  const root = { children: new Map(), bookmarks: [] };
+
+  for (const bookmark of bookmarks) {
+    let node = root;
+    for (const segment of (bookmark.category || '').split('/').filter(Boolean)) {
+      if (!node.children.has(segment)) {
+        node.children.set(segment, { children: new Map(), bookmarks: [] });
+      }
+      node = node.children.get(segment);
+    }
+    node.bookmarks.push(bookmark);
+  }
+
+  return [
+    '<!DOCTYPE NETSCAPE-Bookmark-file-1>',
+    '<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">',
+    '<TITLE>Bookmarks</TITLE>',
+    '<H1>Bookmarks</H1>',
+    ...renderExportFolder(root),
+    '',
+  ].join('\n');
+}
+
+function renderExportFolder(node) {
+  const lines = ['<DL><p>'];
+
+  const childNames = [...node.children.keys()].sort((a, b) => a.localeCompare(b));
+  for (const name of childNames) {
+    lines.push(`    <DT><H3>${escapeHtml(name)}</H3>`);
+    lines.push(...renderExportFolder(node.children.get(name)).map((line) => `    ${line}`));
+  }
+
+  for (const bookmark of node.bookmarks) {
+    const addDate = bookmark.created_at ? Math.floor(new Date(bookmark.created_at).getTime() / 1000) : '';
+    const title = escapeHtml(bookmark.title || bookmark.url);
+    lines.push(`    <DT><A HREF="${escapeHtml(bookmark.url)}" ADD_DATE="${addDate}">${title}</A>`);
+  }
+
+  lines.push('</DL><p>');
+  return lines;
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function downloadFile(filename, content, mimeType) {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+importFileBtn.addEventListener('click', () => importFileInput.click());
+
+importFileInput.addEventListener('change', async () => {
+  const file = importFileInput.files[0];
+  importFileInput.value = ''; // lets the same file be re-selected later
+  if (!file) return;
+
+  try {
+    const html = await file.text();
+    const entries = parseNetscapeBookmarksHtml(html);
+
+    if (entries.length === 0) {
+      alert(`No bookmarks found in "${file.name}" — is it a Netscape-format bookmarks.html export?`);
+      return;
+    }
+    if (!confirm(`Import ${entries.length} bookmark(s) from "${file.name}"?`)) {
+      return;
+    }
+
+    // Handed off to background.js's importFromEntries, which shares the
+    // same throttled/progress-tracked core as the native import — the
+    // #import-banner above already listens for that progress and refreshes
+    // this page when it's done.
+    await browser.runtime.sendMessage({ type: 'import-entries', entries });
+  } catch (err) {
+    console.error('[Library] Failed to import file:', err);
+    alert(`Failed to import file: ${err.message}`);
+  }
+});
+
+// Parses a Netscape bookmarks.html export into a flat [{url, title,
+// category}] list. The format's DTs are never explicitly closed in the
+// source, so a folder's nested <DL> ends up parsed as a CHILD of the <DT>
+// holding that folder's <H3> (an unclosed <dt> isn't implicitly closed by a
+// following <dl> per the HTML5 spec — only by another <dt>/<dd>) — hence
+// looking for `dt > h3` and `dt > dl` on the SAME <dt>, not siblings.
+function parseNetscapeBookmarksHtml(html) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const rootDl = doc.querySelector('dl');
+  const entries = [];
+  if (rootDl) walkImportFolder(rootDl, [], entries);
+  return entries;
+}
+
+function walkImportFolder(dl, pathSegments, out) {
+  for (const dt of dl.querySelectorAll(':scope > dt')) {
+    const h3 = dt.querySelector(':scope > h3');
+    const link = dt.querySelector(':scope > a');
+
+    if (h3) {
+      const nestedDl = dt.querySelector(':scope > dl');
+      if (nestedDl) {
+        walkImportFolder(nestedDl, [...pathSegments, h3.textContent.trim()], out);
+      }
+    } else if (link) {
+      const url = link.getAttribute('href');
+      if (url && /^https?:\/\//i.test(url)) {
+        out.push({
+          url,
+          title: link.textContent.trim(),
+          category: pathSegments.length ? pathSegments.join('/') : null,
+        });
+      }
+    }
+  }
 }
 
 // The backend marks FTS matches with U+0001/U+0002 (see search.ts), not
@@ -456,6 +844,68 @@ async function apiGet(path) {
     throw new Error(`Worker responded ${response.status}`);
   }
   return response.json();
+}
+
+async function apiPost(path, body) {
+  const response = await fetch(`${WORKER_API_URL}${path}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${API_TOKEN}`,
+    },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => null);
+    throw new Error(errorBody?.error || `Worker responded ${response.status}`);
+  }
+  return response.json();
+}
+
+async function apiPatch(path, body) {
+  const response = await fetch(`${WORKER_API_URL}${path}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${API_TOKEN}`,
+    },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => null);
+    throw new Error(errorBody?.error || `Worker responded ${response.status}`);
+  }
+  return response.json();
+}
+
+async function apiDelete(path) {
+  const response = await fetch(`${WORKER_API_URL}${path}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${API_TOKEN}` },
+  });
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => null);
+    throw new Error(errorBody?.error || `Worker responded ${response.status}`);
+  }
+  return response.json();
+}
+
+// Refreshes every view that a bookmark add/edit/delete could have changed
+// (category/tag counts in the sidebar, the datalist, the list itself).
+async function refreshAfterMutation() {
+  await Promise.all([loadCategories(), loadTags()]);
+  await loadBookmarks({ reset: true });
+}
+
+// Asks background.js to mirror a Library add/edit/delete into this
+// browser's native bookmarks (see its writeNativeCreate/Update/Delete).
+// Errors are logged there, not surfaced here — the Worker call already
+// succeeded by the time this is sent, so a failed native mirror shouldn't
+// look like the Library action itself failed.
+function notifyNativeWrite(type, payload) {
+  browser.runtime.sendMessage({ type, ...payload }).catch((err) => {
+    console.error(`[Library] ${type} message failed:`, err);
+  });
 }
 
 function debounce(fn, delayMs) {

@@ -7,14 +7,30 @@
     "bookmarks",
     "tabs",
     "storage",
-    "notifications"
+    "notifications",
+    "contextMenus"
   ],
   "host_permissions": [
     "https://bookmarks.njmtech.co.za/*"
   ],
   "background": {
     "service_worker": "background.js",
-    "scripts": ["browser-polyfill.js", "config.js", "background.js"]
+    "scripts": [
+      "browser-polyfill.js",
+      "config.js",
+      "background.js"
+    ]
+  },
+  "commands": {
+    "save-current-tab": {
+      "suggested_key": {
+        "default": "Alt+Shift+W"
+      },
+      "description": "Save the current tab to the Library"
+    }
+  },
+  "omnibox": {
+    "keyword": "lib"
   },
   "icons": {
     "16": "icons/icon16.png",

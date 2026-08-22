@@ -1,6 +1,8 @@
 export const MAX_URL_CHARS = 2048;
 export const MAX_TITLE_CHARS = 500;
 export const MAX_CATEGORY_CHARS = 200;
+export const MAX_TAG_CHARS = 50;
+export const MAX_TAGS_COUNT = 20;
 
 export function isHttpUrl(value: string): boolean {
   try {
@@ -78,4 +80,21 @@ export function safeParseTags(tags: string | null): string[] {
   } catch {
     return [];
   }
+}
+
+/**
+ * Validates a client-supplied tags array for PATCH /bookmarks (manual edits,
+ * as opposed to the AI tagger's own output, which is already trusted and
+ * bypasses this). Returns null only when `value` isn't an array at all —
+ * individual bad entries are filtered out rather than rejecting the whole
+ * request, matching how title/category are truncated instead of rejected.
+ */
+export function sanitizeTagsInput(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+
+  return value
+    .filter((tag): tag is string => typeof tag === 'string')
+    .map((tag) => tag.trim().toLowerCase().slice(0, MAX_TAG_CHARS))
+    .filter(Boolean)
+    .slice(0, MAX_TAGS_COUNT);
 }

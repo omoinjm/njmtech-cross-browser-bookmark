@@ -6,6 +6,7 @@ import {
   isHttpUrl,
   isPubliclyRoutableUrl,
   safeParseTags,
+  sanitizeTagsInput,
   MAX_URL_CHARS,
   MAX_TITLE_CHARS,
   MAX_CATEGORY_CHARS,
@@ -119,6 +120,94 @@ function clampInt(raw: string | undefined, min: number, max: number, fallback: n
   if (!Number.isInteger(parsed)) return fallback;
   return Math.min(max, Math.max(min, parsed));
 }
+
+interface PatchPayload {
+  title?: string | null;
+  category?: string | null;
+  tags?: unknown;
+}
+
+/**
+ * PATCH /api/v1/bookmarks?url=<url>
+ * Body: { title?: string|null, category?: string|null, tags?: string[]|null }
+ *
+ * Query-by-url, not by id — the extension already treats url as every
+ * bookmark's identity (its dedupe key on create, the key it re-checks on
+ * import), so it never needs to know or cache the server's internal row id
+ * just to edit something. A key's absence in the body leaves that field
+ * untouched; an explicit null clears it (e.g. a bookmark moved back to
+ * "unfiled" clears category).
+ *
+ * Used by background.js's onChanged/onMoved listeners to keep a bookmark's
+ * title/category in sync with native edits, and eventually by hand-editing
+ * from the Library UI.
+ */
+bookmarks.patch(
+  '/',
+  bodyLimit({
+    maxSize: MAX_BODY_BYTES,
+    onError: (c) => c.json({ error: 'Request body too large' }, 413),
+  }),
+  async (c) => {
+    const url = c.req.query('url')?.trim();
+    if (!url || url.length > MAX_URL_CHARS) {
+      return c.json({ error: 'A valid "url" query parameter is required' }, 400);
+    }
+
+    const payload = await c.req.json<PatchPayload>().catch(() => null);
+    if (!payload || (!('title' in payload) && !('category' in payload) && !('tags' in payload))) {
+      return c.json({ error: 'At least one of "title", "category", or "tags" is required' }, 400);
+    }
+
+    const fields: { title?: string | null; category?: string | null; tags?: string[] } = {};
+
+    if ('title' in payload) {
+      fields.title = payload.title == null ? null : payload.title.trim().slice(0, MAX_TITLE_CHARS) || null;
+    }
+    if ('category' in payload) {
+      fields.category =
+        payload.category == null ? null : payload.category.trim().slice(0, MAX_CATEGORY_CHARS) || null;
+    }
+    if ('tags' in payload) {
+      const tags = sanitizeTagsInput(payload.tags);
+      if (tags === null) {
+        return c.json({ error: '"tags" must be an array of strings' }, 400);
+      }
+      fields.tags = tags;
+    }
+
+    const { repository } = c.get('deps');
+    const updated = await repository.updateByUrl(url, fields);
+
+    if (!updated) {
+      return c.json({ error: 'Not found' }, 404);
+    }
+
+    return c.json({ ok: true });
+  }
+);
+
+/**
+ * DELETE /api/v1/bookmarks?url=<url>
+ * Mirrors PATCH above — query-by-url for the same reason. Used by
+ * background.js's onRemoved listener, and eventually a delete button in the
+ * Library UI.
+ */
+bookmarks.delete('/', async (c) => {
+  const url = c.req.query('url')?.trim();
+  if (!url || url.length > MAX_URL_CHARS) {
+    return c.json({ error: 'A valid "url" query parameter is required' }, 400);
+  }
+
+  const { repository } = c.get('deps');
+  const deleted = await repository.deleteByUrl(url);
+
+  if (!deleted) {
+    return c.json({ error: 'Not found' }, 404);
+  }
+
+  return c.json({ ok: true });
+});
 
 /**
  * GET /api/v1/bookmarks/url-categories

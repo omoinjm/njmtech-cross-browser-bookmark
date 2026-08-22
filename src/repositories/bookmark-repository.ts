@@ -1,10 +1,19 @@
-import type { BookmarkRow, BookmarkSearchResult, TagCount, CategoryCount } from '../env';
+import type { BookmarkRow, BookmarkSearchResult, TagCount, CategoryCount, ReorgBookmarkRow } from '../env';
 
 export interface ListBookmarksOptions {
   tag?: string;
   category?: string;
   limit: number;
   offset: number;
+}
+
+// A key's absence leaves that field untouched; an explicit `null` clears it
+// (relevant for category, which goes null when a bookmark moves out of every
+// real folder back to "unfiled").
+export interface UpdateBookmarkFields {
+  title?: string | null;
+  category?: string | null;
+  tags?: string[];
 }
 
 /**
@@ -26,6 +35,15 @@ export interface BookmarkRepository {
   markFailed(id: number): Promise<void>;
   updateCategory(id: number, category: string): Promise<void>;
   applyReorganization(mapping: Array<{ from: string; to: string }>): Promise<void>;
+  /** Categorized bookmarks only, capped at `limit` — feeds the reorg-suggestion prompt. */
+  listForReorg(limit: number): Promise<ReorgBookmarkRow[]>;
+  /** Re-fetches bookmarks by id to re-validate a bookmark-move suggestion right before applying it. */
+  listByIds(ids: number[]): Promise<ReorgBookmarkRow[]>;
+  applyBookmarkMoves(moves: Array<{ id: number; category: string }>): Promise<void>;
+  /** Returns false when no bookmark has this url — the route turns that into a 404. */
+  updateByUrl(url: string, fields: UpdateBookmarkFields): Promise<boolean>;
+  /** Returns false when no bookmark has this url — the route turns that into a 404. */
+  deleteByUrl(url: string): Promise<boolean>;
 }
 
 export class D1BookmarkRepository implements BookmarkRepository {
@@ -185,5 +203,79 @@ export class D1BookmarkRepository implements BookmarkRepository {
     );
 
     await this.db.batch(statements);
+  }
+
+  async listForReorg(limit: number): Promise<ReorgBookmarkRow[]> {
+    const { results } = await this.db
+      .prepare(
+        `SELECT id, url, title, category FROM bookmarks
+         WHERE category IS NOT NULL AND category != ''
+         ORDER BY category, id
+         LIMIT ?`
+      )
+      .bind(limit)
+      .all<ReorgBookmarkRow>();
+    return results;
+  }
+
+  async listByIds(ids: number[]): Promise<ReorgBookmarkRow[]> {
+    if (ids.length === 0) return [];
+
+    const placeholders = ids.map(() => '?').join(',');
+    const { results } = await this.db
+      .prepare(`SELECT id, url, title, category FROM bookmarks WHERE id IN (${placeholders})`)
+      .bind(...ids)
+      .all<ReorgBookmarkRow>();
+    return results;
+  }
+
+  async applyBookmarkMoves(moves: Array<{ id: number; category: string }>): Promise<void> {
+    if (moves.length === 0) return;
+
+    const statements = moves.map(({ id, category }) =>
+      this.db
+        .prepare(`UPDATE bookmarks SET category = ?, updated_at = datetime('now') WHERE id = ?`)
+        .bind(category, id)
+    );
+
+    await this.db.batch(statements);
+  }
+
+  // Builds the SET clause from whichever keys are actually present in
+  // `fields` — see UpdateBookmarkFields' doc comment for why presence (not
+  // truthiness) is what matters here.
+  async updateByUrl(url: string, fields: UpdateBookmarkFields): Promise<boolean> {
+    const sets: string[] = [];
+    const values: unknown[] = [];
+
+    if ('title' in fields) {
+      sets.push('title = ?');
+      values.push(fields.title ?? null);
+    }
+    if ('category' in fields) {
+      sets.push('category = ?');
+      values.push(fields.category ?? null);
+    }
+    if ('tags' in fields) {
+      sets.push('tags = ?');
+      values.push(JSON.stringify(fields.tags ?? []));
+    }
+
+    if (sets.length === 0) return false;
+
+    sets.push(`updated_at = datetime('now')`);
+    values.push(url);
+
+    const result = await this.db
+      .prepare(`UPDATE bookmarks SET ${sets.join(', ')} WHERE url = ?`)
+      .bind(...values)
+      .run();
+
+    return result.meta.changes > 0;
+  }
+
+  async deleteByUrl(url: string): Promise<boolean> {
+    const result = await this.db.prepare('DELETE FROM bookmarks WHERE url = ?').bind(url).run();
+    return result.meta.changes > 0;
   }
 }
