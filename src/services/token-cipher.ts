@@ -19,17 +19,28 @@ export interface TokenCipher {
 const IV_LENGTH_BYTES = 12;
 
 export class WebCryptoTokenCipher implements TokenCipher {
-  private readonly keyPromise: Promise<CryptoKey>;
+  private keyPromise: Promise<CryptoKey> | null = null;
 
-  constructor(base64Key: string) {
-    this.keyPromise = crypto.subtle.importKey('raw', base64ToBytes(base64Key), 'AES-GCM', false, [
-      'encrypt',
-      'decrypt',
-    ]);
+  constructor(private readonly base64Key: string) {}
+
+  // Deferred until first actual use (not done in the constructor) — this is
+  // built unconditionally for every request via container.ts's
+  // buildDependencies, regardless of which route is being served. Importing
+  // eagerly meant a missing/invalid TOKEN_ENCRYPTION_KEY (e.g. the OAuth
+  // feature not being configured yet) would throw for every single request,
+  // not just ones that actually touch auth.
+  private getKey(): Promise<CryptoKey> {
+    if (!this.keyPromise) {
+      this.keyPromise = crypto.subtle.importKey('raw', base64ToBytes(this.base64Key), 'AES-GCM', false, [
+        'encrypt',
+        'decrypt',
+      ]);
+    }
+    return this.keyPromise;
   }
 
   async encrypt(plaintext: string): Promise<EncryptedToken> {
-    const key = await this.keyPromise;
+    const key = await this.getKey();
     // A fresh random IV per call — AES-GCM security depends on never
     // reusing an IV with the same key, so this must never be derived from
     // anything predictable (e.g. a counter that could reset).
@@ -47,7 +58,7 @@ export class WebCryptoTokenCipher implements TokenCipher {
   }
 
   async decrypt(encrypted: EncryptedToken): Promise<string> {
-    const key = await this.keyPromise;
+    const key = await this.getKey();
     const plaintextBuffer = await crypto.subtle.decrypt(
       { name: 'AES-GCM', iv: base64ToBytes(encrypted.iv) },
       key,
