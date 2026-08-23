@@ -161,10 +161,14 @@ test('search mode toggle switches search requests between keyword and semantic',
   await expect.poll(() => requestedModes.length).toBeGreaterThan(0);
   expect(requestedModes.at(-1)).toBe('keyword'); // default, unchecked
 
-  await page.click('#semantic-search-toggle');
+  // The checkbox itself is visually hidden (see .ai-toggle-input in
+  // theme.css) — a real user clicks the visible pill, which the <label>
+  // wrapping it forwards to the checkbox natively.
+  const toggle = page.locator('label:has(#semantic-search-toggle) .ai-toggle-track');
+  await toggle.click();
   await expect.poll(() => requestedModes.at(-1)).toBe('semantic');
 
-  await page.click('#semantic-search-toggle'); // back off
+  await toggle.click(); // back off
   await expect.poll(() => requestedModes.at(-1)).toBe('keyword');
 
   expect(errors, `console/page errors: ${errors.join('; ')}`).toEqual([]);

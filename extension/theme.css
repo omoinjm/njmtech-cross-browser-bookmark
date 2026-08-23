@@ -1,6 +1,7 @@
 /* theme.css — shared HackTheBox-style dark palette for popup.html and
-   library.html. Single source of truth so the two pages' tokens can't
-   silently drift out of sync. */
+   library.html, plus the one component (.ai-toggle, below) used
+   identically on both. Single source of truth so neither the tokens nor a
+   shared component's look can silently drift out of sync between pages. */
 :root {
   /* Backgrounds (layered, darkest to lightest) */
   --bg-page: #0b0f14;
@@ -40,4 +41,107 @@
 
   --font-mono: ui-monospace, "SF Mono", "Cascadia Code", "Segoe UI Mono", "Roboto Mono", Menlo, Consolas, monospace;
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+/* --- AI toggle switch ---
+   A pill-shaped ON/OFF switch (checkbox under the hood, visually hidden —
+   see .ai-toggle-input) shared by every AI-feature toggle across both pages
+   (popup's "suggest categories"/"AI search", the Library's "AI search"),
+   so a single look lives in one place instead of drifting per page. */
+.ai-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+/* Visually hidden, not display:none — keeps it focusable/keyboard-operable
+   and still fires its native `change` event exactly like a plain checkbox. */
+.ai-toggle-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.ai-toggle-track {
+  position: relative;
+  flex-shrink: 0;
+  width: 56px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border-strong);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.ai-toggle-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.ai-toggle-text {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  transition: opacity 0.1s ease;
+}
+
+.ai-toggle-text-off {
+  right: 6px;
+  color: var(--text-muted);
+  opacity: 1;
+}
+
+.ai-toggle-text-on {
+  left: 6px;
+  color: var(--bg-page);
+  opacity: 0;
+}
+
+.ai-toggle-input:checked ~ .ai-toggle-track {
+  background: var(--accent-green);
+  border-color: var(--accent-green);
+  box-shadow: 0 0 8px var(--accent-green-glow);
+}
+
+.ai-toggle-input:checked ~ .ai-toggle-track .ai-toggle-knob {
+  transform: translateX(32px);
+  background: var(--bg-page);
+}
+
+.ai-toggle-input:checked ~ .ai-toggle-track .ai-toggle-text-off {
+  opacity: 0;
+}
+
+.ai-toggle-input:checked ~ .ai-toggle-track .ai-toggle-text-on {
+  opacity: 1;
+}
+
+.ai-toggle-input:focus-visible ~ .ai-toggle-track {
+  outline: none;
+  box-shadow: 0 0 0 1px var(--accent-green), 0 0 8px var(--accent-green-glow);
+}
+
+.ai-toggle-label {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+  transition: color 0.15s ease;
+}
+
+.ai-toggle:hover .ai-toggle-label {
+  color: var(--text-primary);
 }
