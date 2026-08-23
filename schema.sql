@@ -5,8 +5,34 @@
 DROP TABLE IF EXISTS bookmarks_fts;
 DROP TABLE IF EXISTS bookmarks;
 DROP TABLE IF EXISTS sessions;
-DROP TABLE IF EXISTS oauth_accounts;
 DROP TABLE IF EXISTS users;
+
+-- Real accounts: email + an auto-generated password emailed via
+-- njmtech-email-template-api (see services/email-sender.ts) — no
+-- third-party identity provider. Must exist before `bookmarks`, which
+-- references it.
+CREATE TABLE users (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  email         TEXT NOT NULL UNIQUE,
+  -- PBKDF2 output as one self-describing string (algorithm$iterations$salt$hash)
+  -- — see services/password-hasher.ts. No separate salt column needed.
+  password_hash TEXT NOT NULL,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Opaque bearer session tokens the extension authenticates with. Only the
+-- SHA-256 hash of the token is stored — the raw token is returned to the
+-- client exactly once, at sign-in.
+CREATE TABLE sessions (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id    INTEGER NOT NULL REFERENCES users(id),
+  token_hash TEXT NOT NULL UNIQUE,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX idx_sessions_user_id ON sessions (user_id);
+CREATE INDEX idx_sessions_expires_at ON sessions (expires_at);
 
 -- Main table. `status` tracks the async scrape/tag pipeline so the API can
 -- return instantly on POST and let waitUntil() fill in the rest later.
@@ -17,9 +43,16 @@ DROP TABLE IF EXISTS users;
 -- tagging — one bookmark, many tags. Category is set once at creation
 -- (from the real folder, or an AI suggestion for unfiled bookmarks) and
 -- never overwritten afterward; tags are (re)written by the tagging pipeline.
+--
+-- `UNIQUE (user_id, url)`, not a bare unique url: two different users
+-- bookmarking the same URL are two independent rows, each scoped to its own
+-- owner — see BookmarkRepository, where every method takes a userId and
+-- enforces it in its WHERE clause as a hard security boundary, not just a
+-- convenience filter.
 CREATE TABLE bookmarks (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
-  url          TEXT NOT NULL UNIQUE,
+  user_id      INTEGER REFERENCES users(id),
+  url          TEXT NOT NULL,
   title        TEXT,
   body_text    TEXT,
   tags         TEXT,                          -- JSON array, e.g. ["ai","tooling"]
@@ -33,11 +66,13 @@ CREATE TABLE bookmarks (
   -- itself lives only in Vectorize, keyed by this row's id; this column is
   -- just "has it been done" bookkeeping so a backfill run can skip rows
   -- that already have one.
-  embedded_at  TEXT
+  embedded_at  TEXT,
+  UNIQUE (user_id, url)
 );
 
 CREATE INDEX idx_bookmarks_status ON bookmarks (status);
 CREATE INDEX idx_bookmarks_category ON bookmarks (category);
+CREATE INDEX idx_bookmarks_user_id ON bookmarks (user_id);
 
 -- FTS5 virtual table using the "external content" pattern: it stores no data
 -- of its own, just an inverted index over bookmarks.title/body_text/tags/
@@ -73,42 +108,3 @@ CREATE TRIGGER bookmarks_au AFTER UPDATE ON bookmarks BEGIN
   INSERT INTO bookmarks_fts (rowid, title, body_text, tags, category)
   VALUES (new.id, new.title, new.body_text, new.tags, new.category);
 END;
-
--- Multi-tenant auth (see migrations/0002_add_users_and_sessions.sql for the
--- non-destructive version of this against an existing live database).
-CREATE TABLE users (
-  id         INTEGER PRIMARY KEY AUTOINCREMENT,
-  email      TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
--- One row per (provider, provider account) a user has signed in with.
--- Refresh tokens are stored encrypted (AES-256-GCM via
--- services/token-cipher.ts) — never in plaintext.
-CREATE TABLE oauth_accounts (
-  id                       INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id                  INTEGER NOT NULL REFERENCES users(id),
-  provider                 TEXT NOT NULL CHECK (provider IN ('google', 'microsoft')),
-  provider_account_id      TEXT NOT NULL,
-  refresh_token_ciphertext TEXT NOT NULL,
-  refresh_token_iv         TEXT NOT NULL,
-  scope                    TEXT NOT NULL,
-  created_at               TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at               TEXT NOT NULL DEFAULT (datetime('now')),
-  UNIQUE (provider, provider_account_id)
-);
-
--- Opaque bearer session tokens the extension authenticates with. Only the
--- SHA-256 hash of the token is stored — the raw token is returned to the
--- client exactly once, at sign-in.
-CREATE TABLE sessions (
-  id         INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id    INTEGER NOT NULL REFERENCES users(id),
-  token_hash TEXT NOT NULL UNIQUE,
-  expires_at TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE INDEX idx_oauth_accounts_user_id ON oauth_accounts (user_id);
-CREATE INDEX idx_sessions_user_id ON sessions (user_id);
-CREATE INDEX idx_sessions_expires_at ON sessions (expires_at);

@@ -19,21 +19,25 @@ const { test, expect } = require('./fixtures');
 
 // The popup/library pages fetch from WORKER_API_URL on load or on user
 // action — mocked here so this smoke test never depends on (or accidentally
-// hits) a real backend, and never needs a real API token.
+// hits) a real backend, and never needs a real account. Includes /auth/me
+// since the popup's Account tab checks it on every load (see
+// fixtures.js's seeded fake sessionToken).
 async function mockWorkerApi(page) {
   await page.route('https://example.invalid/api/v1/**', (route) => {
     const url = route.request().url();
-    const body = url.includes('/search')
-      ? { results: [] }
-      : url.includes('/categories/suggest-reorganization')
-        ? { suggestions: [] }
-        : url.includes('/categories')
-          ? { categories: [] }
-          : url.includes('/tags')
-            ? { tags: [] }
-            : url.includes('/bookmarks')
-              ? { bookmarks: [] }
-              : {};
+    const body = url.includes('/auth/me')
+      ? { user: { id: 1, email: 'test@example.com' } }
+      : url.includes('/search')
+        ? { results: [] }
+        : url.includes('/categories/suggest-reorganization')
+          ? { suggestions: [] }
+          : url.includes('/categories')
+            ? { categories: [] }
+            : url.includes('/tags')
+              ? { tags: [] }
+              : url.includes('/bookmarks')
+                ? { bookmarks: [] }
+                : {};
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
   });
 }
@@ -74,6 +78,67 @@ test('popup loads cleanly and all three tabs switch correctly', async ({ context
   expect(errors, `console/page errors: ${errors.join('; ')}`).toEqual([]);
 });
 
+test('account tab logs out, registers, and logs back in', async ({ context, extensionId }) => {
+  const page = await context.newPage();
+  const errors = collectErrors(page);
+
+  let registeredEmail = null;
+  const loginAttempts = [];
+
+  await page.route('https://example.invalid/api/v1/**', (route) => {
+    const request = route.request();
+    const url = request.url();
+    const method = request.method();
+    const json = (status, body) =>
+      route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
+
+    if (url.includes('/auth/me')) return json(200, { user: { id: 1, email: 'jane@example.com' } });
+    if (url.includes('/auth/logout')) return json(200, { ok: true });
+    if (url.includes('/auth/register') && method === 'POST') {
+      registeredEmail = request.postDataJSON().email;
+      return json(201, { message: 'Check your email for your password' });
+    }
+    if (url.includes('/auth/login') && method === 'POST') {
+      loginAttempts.push(request.postDataJSON());
+      return json(200, {
+        sessionToken: 'new-session-token',
+        expiresAt: '2099-01-01',
+        user: { id: 1, email: 'jane@example.com' },
+      });
+    }
+    return json(200, {});
+  });
+
+  await page.goto(`chrome-extension://${extensionId}/popup.html`);
+  await page.click('.tab-btn[data-tab="account"]');
+
+  // fixtures.js seeds a fake session token — the tab should start logged in.
+  await expect(page.locator('#account-logged-in')).toBeVisible();
+  await expect(page.locator('#account-email')).toHaveText('jane@example.com');
+
+  await page.click('#logout-btn');
+  await expect(page.locator('#account-logged-out')).toBeVisible();
+  const tokenAfterLogout = await page.evaluate(
+    () => new Promise((resolve) => chrome.storage.local.get('sessionToken', (r) => resolve(r.sessionToken)))
+  );
+  expect(tokenAfterLogout).toBeUndefined();
+
+  await page.fill('#register-email', 'jane@example.com');
+  await page.click('#register-form button[type="submit"]');
+  await expect(page.locator('#register-status')).toHaveText('Check your email for your password');
+  expect(registeredEmail).toBe('jane@example.com');
+
+  await page.fill('#login-email', 'jane@example.com');
+  await page.fill('#login-password', 'generated-password');
+  await page.click('#login-form button[type="submit"]');
+
+  await expect(page.locator('#account-logged-in')).toBeVisible();
+  await expect(page.locator('#account-email')).toHaveText('jane@example.com');
+  expect(loginAttempts).toEqual([{ email: 'jane@example.com', password: 'generated-password' }]);
+
+  expect(errors, `console/page errors: ${errors.join('; ')}`).toEqual([]);
+});
+
 test('reorg suggestions mix category renames and bookmark moves, and apply sends both back', async ({
   context,
   extensionId,
@@ -89,6 +154,13 @@ test('reorg suggestions mix category renames and bookmark moves, and apply sends
   let reorganizeBody = null;
   await page.route('https://example.invalid/api/v1/**', (route) => {
     const url = route.request().url();
+    if (url.includes('/auth/me')) {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ user: { id: 1, email: 'test@example.com' } }),
+      });
+    }
     if (url.includes('/categories/suggest-reorganization')) {
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ suggestions }) });
     }

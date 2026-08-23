@@ -1,42 +1,32 @@
 /**
  * Bindings declared in wrangler.toml:
- *  - DB:        D1 database (bookmarks + bookmarks_fts)
+ *  - DB:        D1 database (bookmarks + bookmarks_fts + users/sessions)
  *  - AI:        Workers AI, used for auto-tagging and embeddings
  *  - BROWSER:   Browser Rendering, used to scrape title/body text
  *  - VECTORIZE: Vectorize index storing one embedding per processed
  *    bookmark, used for semantic search — see services/embedding-generator.ts
  *    and services/semantic-index.ts.
- *  - USER_ACTOR: Durable Object namespace (class UserActor) — one instance
- *    per user, serializing that user's Drive/OneDrive file writes and
- *    tracking their fair-use AI rate limit.
  *
- * Secrets (set via `wrangler secret put <NAME>`, never committed):
- *  - API_TOKEN: legacy shared bearer token — kept only until the Phase 5
- *    rollout cutover (see migration plan), then deleted.
- *  - GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET: Google OAuth app credentials.
- *  - MICROSOFT_CLIENT_ID / MICROSOFT_CLIENT_SECRET: Microsoft Entra app
- *    registration credentials.
- *  - TOKEN_ENCRYPTION_KEY: 32-byte base64 AES-256-GCM key used to encrypt
- *    stored OAuth refresh tokens at rest (see services/token-cipher.ts).
+ * No secrets: every route authenticates via a per-user session (see
+ * middleware/require-session.ts) instead of a shared static token. Accounts
+ * are email + an auto-generated password emailed via
+ * services/email-sender.ts — no third-party identity provider is used.
  */
 export interface Env {
   DB: D1Database;
   AI: Ai;
   BROWSER: Fetcher;
   VECTORIZE: VectorizeIndex;
-  USER_ACTOR: DurableObjectNamespace;
-  API_TOKEN: string;
-  GOOGLE_CLIENT_ID: string;
-  GOOGLE_CLIENT_SECRET: string;
-  MICROSOFT_CLIENT_ID: string;
-  MICROSOFT_CLIENT_SECRET: string;
-  TOKEN_ENCRYPTION_KEY: string;
 }
 
 export type BookmarkStatus = 'pending' | 'processed' | 'failed';
 
 export interface BookmarkRow {
   id: number;
+  // Nullable only for pre-migration legacy rows not yet claimed by the
+  // one-off ownership backfill (see migrations/0004_add_bookmark_ownership.sql)
+  // — every row created by application code always has one.
+  user_id: number | null;
   url: string;
   title: string | null;
   body_text: string | null;
@@ -79,8 +69,6 @@ export interface ReorgBookmarkRow {
   title: string | null;
   category: string | null;
 }
-
-export type OAuthProviderName = 'google' | 'microsoft';
 
 export interface AuthenticatedUser {
   id: number;

@@ -23,7 +23,16 @@ if (typeof importScripts === 'function') {
   importScripts('browser-polyfill.js', 'config.js');
 }
 
-// WORKER_API_URL and API_TOKEN come from config.js (loaded above).
+// WORKER_API_URL comes from config.js (loaded above). Authentication is a
+// per-account session token (see auth.ts server-side), not a static
+// config-file secret — obtained via the popup's Account tab logging in,
+// stored here in storage.local, and read fresh on every request so a
+// logout/re-login in the popup takes effect immediately for background
+// syncs too.
+async function getSessionToken() {
+  const { sessionToken } = await browser.storage.local.get('sessionToken');
+  return sessionToken || null;
+}
 
 // No server-side rate limiting exists yet, and Browser Rendering/Workers AI
 // both have concurrency limits — importing hundreds of bookmarks at once
@@ -274,8 +283,9 @@ browser.omnibox.onInputChanged.addListener(async (text, suggest) => {
   const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
   try {
+    const sessionToken = await getSessionToken();
     const response = await fetch(`${WORKER_API_URL}/search?q=${encodeURIComponent(query)}`, {
-      headers: { Authorization: `Bearer ${API_TOKEN}` },
+      headers: { Authorization: `Bearer ${sessionToken}` },
       signal: controller.signal,
     });
     if (!response.ok) return;
@@ -353,8 +363,9 @@ async function fetchBookmarkById(id) {
   const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
   try {
+    const sessionToken = await getSessionToken();
     const response = await fetch(`${WORKER_API_URL}/bookmarks/${id}`, {
-      headers: { Authorization: `Bearer ${API_TOKEN}` },
+      headers: { Authorization: `Bearer ${sessionToken}` },
       signal: controller.signal,
     });
     if (!response.ok) return null;
@@ -479,8 +490,9 @@ async function fetchExistingCategoriesByUrl() {
     const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     let response;
     try {
+      const sessionToken = await getSessionToken();
       response = await fetch(`${WORKER_API_URL}/bookmarks/url-categories`, {
-        headers: { Authorization: `Bearer ${API_TOKEN}` },
+        headers: { Authorization: `Bearer ${sessionToken}` },
         signal: controller.signal,
       });
     } finally {
@@ -807,11 +819,12 @@ async function syncBookmark(url, title, categoryPath) {
 
     let response;
     try {
+      const sessionToken = await getSessionToken();
       response = await fetch(`${WORKER_API_URL}/bookmarks`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${API_TOKEN}`,
+          Authorization: `Bearer ${sessionToken}`,
         },
         body: JSON.stringify(body),
         signal: controller.signal,
@@ -855,11 +868,12 @@ async function patchBookmark(url, fields) {
 
     let response;
     try {
+      const sessionToken = await getSessionToken();
       response = await fetch(`${WORKER_API_URL}/bookmarks?url=${encodeURIComponent(url)}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${API_TOKEN}`,
+          Authorization: `Bearer ${sessionToken}`,
         },
         body: JSON.stringify(fields),
         signal: controller.signal,
@@ -884,9 +898,10 @@ async function deleteBookmark(url) {
 
     let response;
     try {
+      const sessionToken = await getSessionToken();
       response = await fetch(`${WORKER_API_URL}/bookmarks?url=${encodeURIComponent(url)}`, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${API_TOKEN}` },
+        headers: { Authorization: `Bearer ${sessionToken}` },
         signal: controller.signal,
       });
     } finally {

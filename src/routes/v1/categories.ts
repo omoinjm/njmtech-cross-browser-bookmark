@@ -1,12 +1,12 @@
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import type { AppEnv } from '../../http-context';
-import { requireApiToken } from '../../middleware/require-api-token';
+import { requireSession } from '../../middleware/require-session';
 import { MAX_CATEGORY_CHARS } from '../../lib/validation';
 
 export const categories = new Hono<AppEnv>();
 
-categories.use('*', requireApiToken);
+categories.use('*', requireSession);
 
 /**
  * GET /api/v1/categories
@@ -17,8 +17,9 @@ categories.use('*', requireApiToken);
  * existing-categories list the AI classifier picks from.
  */
 categories.get('/', async (c) => {
+  const user = c.get('user');
   const { repository } = c.get('deps');
-  const results = await repository.listCategories();
+  const results = await repository.listCategories(user.id);
   return c.json({ categories: results });
 });
 
@@ -35,10 +36,11 @@ const MAX_REORG_BOOKMARKS = 500;
  * is changed by this call — see /reorganize to actually apply suggestions.
  */
 categories.post('/suggest-reorganization', async (c) => {
+  const user = c.get('user');
   const { repository, categoryReorganizer } = c.get('deps');
   const [currentCategories, candidateBookmarks] = await Promise.all([
-    repository.listCategories(),
-    repository.listForReorg(MAX_REORG_BOOKMARKS),
+    repository.listCategories(user.id),
+    repository.listForReorg(user.id, MAX_REORG_BOOKMARKS),
   ]);
   const suggestions = await categoryReorganizer.suggest(currentCategories, candidateBookmarks);
   return c.json({ suggestions });
@@ -60,12 +62,16 @@ interface ReorgApplyItem {
  *
  * Applies a mix of category-level and bookmark-level entries — normally the
  * (possibly user-edited) output of /suggest-reorganization, sent back
- * verbatim. Every entry is re-validated against the CURRENT state (never
- * trusted from the request): a category `from` must still be a real
- * category, a bookmark's `to` must be a real category the bookmark isn't
- * already in. Entries that no longer validate are silently dropped rather
- * than erroring the whole request, since categories/bookmarks may have
- * changed between generating a suggestion and applying it.
+ * verbatim. Every entry is re-validated against the CURRENT state for the
+ * calling user (never trusted from the request): a category `from` must
+ * still be a real category *of theirs*, a bookmark's `to` must be a real
+ * category the bookmark isn't already in, and the bookmark itself must
+ * belong to them — `listByIds` below is scoped by `user.id`, which is the
+ * only thing stopping one user from moving/renaming another user's
+ * bookmarks by guessing an id. Entries that no longer validate are silently
+ * dropped rather than erroring the whole request, since categories/
+ * bookmarks may have changed between generating a suggestion and applying
+ * it (or simply were never this user's to begin with).
  */
 categories.post(
   '/reorganize',
@@ -84,8 +90,9 @@ categories.post(
       return c.json({ error: `A maximum of ${MAX_REORG_ITEMS} entries is supported` }, 400);
     }
 
+    const user = c.get('user');
     const { repository } = c.get('deps');
-    const currentCategories = await repository.listCategories();
+    const currentCategories = await repository.listCategories(user.id);
     const validCategoryNames = new Set(currentCategories.map((cat) => cat.category));
 
     const categoryMapping = rawItems
@@ -100,7 +107,7 @@ categories.post(
     const bookmarkIds = bookmarkItems
       .map((item) => Number(item.bookmarkId))
       .filter((id) => Number.isInteger(id));
-    const bookmarksById = new Map((await repository.listByIds(bookmarkIds)).map((b) => [b.id, b]));
+    const bookmarksById = new Map((await repository.listByIds(user.id, bookmarkIds)).map((b) => [b.id, b]));
 
     const bookmarkMoves = bookmarkItems
       .map((item) => ({
@@ -120,8 +127,8 @@ categories.post(
       );
     }
 
-    await repository.applyReorganization(categoryMapping);
-    await repository.applyBookmarkMoves(bookmarkMoves);
+    await repository.applyReorganization(user.id, categoryMapping);
+    await repository.applyBookmarkMoves(user.id, bookmarkMoves);
 
     return c.json({ applied: categoryMapping.length + bookmarkMoves.length });
   }

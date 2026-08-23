@@ -7,19 +7,18 @@ import { WorkersAiTagGenerator, type TagGenerator } from './services/tag-generat
 import { WorkersAiCategoryClassifier, type CategoryClassifier } from './services/category-classifier';
 import { WorkersAiCategoryReorganizer, type CategoryReorganizer } from './services/category-reorganizer';
 import { WorkersAiSearchQueryExpander, type SearchQueryExpander } from './services/search-query-expander';
-import { WebCryptoTokenCipher, type TokenCipher } from './services/token-cipher';
-import { GoogleOAuthProvider } from './services/oauth/google-oauth';
-import { MicrosoftOAuthProvider } from './services/oauth/microsoft-oauth';
-import type { OAuthProvider } from './services/oauth/oauth-provider';
 import { WorkersAiEmbeddingGenerator, type EmbeddingGenerator } from './services/embedding-generator';
 import { VectorizeSemanticIndex, type SemanticIndex } from './services/semantic-index';
+import { WebCryptoPasswordHasher, type PasswordHasher } from './services/password-hasher';
+import { TemplateApiEmailSender, type EmailSender } from './services/email-sender';
 import { BookmarkIngestionPipeline } from './services/bookmark-ingestion-pipeline';
 
 /**
  * The composition root: the one place concrete implementations get wired to
  * their abstractions. Route handlers only ever see the interfaces below, via
  * `c.get('deps')` — this is the only file that knows D1/Workers AI/Browser
- * Rendering/Google/Microsoft are the implementations behind them.
+ * Rendering/Vectorize/the email template API are the implementations behind
+ * them.
  */
 export interface Dependencies {
   repository: BookmarkRepository;
@@ -30,9 +29,8 @@ export interface Dependencies {
   semanticIndex: SemanticIndex;
   userRepository: UserRepository;
   sessionRepository: SessionRepository;
-  tokenCipher: TokenCipher;
-  googleOAuth: OAuthProvider;
-  microsoftOAuth: OAuthProvider;
+  passwordHasher: PasswordHasher;
+  emailSender: EmailSender;
 }
 
 export function buildDependencies(env: Env): Dependencies {
@@ -55,9 +53,8 @@ export function buildDependencies(env: Env): Dependencies {
 
   const userRepository: UserRepository = new D1UserRepository(env.DB);
   const sessionRepository: SessionRepository = new D1SessionRepository(env.DB);
-  const tokenCipher: TokenCipher = new WebCryptoTokenCipher(env.TOKEN_ENCRYPTION_KEY);
-  const googleOAuth: OAuthProvider = new GoogleOAuthProvider(env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET);
-  const microsoftOAuth: OAuthProvider = new MicrosoftOAuthProvider(env.MICROSOFT_CLIENT_ID, env.MICROSOFT_CLIENT_SECRET);
+  const passwordHasher: PasswordHasher = new WebCryptoPasswordHasher();
+  const emailSender: EmailSender = new TemplateApiEmailSender();
 
   return {
     repository,
@@ -68,8 +65,7 @@ export function buildDependencies(env: Env): Dependencies {
     semanticIndex,
     userRepository,
     sessionRepository,
-    tokenCipher,
-    googleOAuth,
-    microsoftOAuth,
+    passwordHasher,
+    emailSender,
   };
 }

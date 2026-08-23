@@ -18,6 +18,8 @@ export interface SessionRepository {
   createSession(userId: number): Promise<CreatedSession>;
   validateSession(token: string): Promise<AuthenticatedUser | null>;
   revokeSession(token: string): Promise<void>;
+  /** Used by password reset — forces re-login everywhere once the password's changed. */
+  revokeAllSessions(userId: number): Promise<void>;
 }
 
 export class D1SessionRepository implements SessionRepository {
@@ -52,6 +54,10 @@ export class D1SessionRepository implements SessionRepository {
   async revokeSession(token: string): Promise<void> {
     const tokenHash = await sha256Hex(token);
     await this.db.prepare(`DELETE FROM sessions WHERE token_hash = ?`).bind(tokenHash).run();
+  }
+
+  async revokeAllSessions(userId: number): Promise<void> {
+    await this.db.prepare(`DELETE FROM sessions WHERE user_id = ?`).bind(userId).run();
   }
 }
 

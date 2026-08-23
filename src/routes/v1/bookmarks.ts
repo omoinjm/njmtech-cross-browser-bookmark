@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import type { AppEnv } from '../../http-context';
-import { requireApiToken } from '../../middleware/require-api-token';
+import { requireSession } from '../../middleware/require-session';
 import {
   isHttpUrl,
   isPubliclyRoutableUrl,
@@ -14,7 +14,7 @@ import {
 
 export const bookmarks = new Hono<AppEnv>();
 
-bookmarks.use('*', requireApiToken);
+bookmarks.use('*', requireSession);
 
 // The payload is just { url, title } — 8KB is generous headroom, and capping
 // it stops a maliciously huge body from being parsed/stored for free.
@@ -51,10 +51,11 @@ bookmarks.post(
       return c.json({ error: 'A valid public "url" (http/https) is required' }, 400);
     }
 
+    const user = c.get('user');
     const { repository, pipeline } = c.get('deps');
     const category = payload?.category?.trim().slice(0, MAX_CATEGORY_CHARS) || null;
 
-    const existing = await repository.findByUrl(url);
+    const existing = await repository.findByUrl(user.id, url);
     if (existing) {
       // A folder-derived `category` always reflects where the bookmark
       // really lives right now, so it's safe to overwrite whatever was
@@ -65,7 +66,7 @@ bookmarks.post(
       if (category && category !== existing.category) {
         await repository.updateCategory(existing.id, category);
       } else if (!existing.category && payload?.suggestCategory) {
-        c.executionCtx.waitUntil(pipeline.categorizeExisting(existing.id));
+        c.executionCtx.waitUntil(pipeline.categorizeExisting(user.id, existing.id));
       }
       return c.json({ id: existing.id, status: existing.status, message: 'Bookmark already exists' }, 200);
     }
@@ -75,7 +76,7 @@ bookmarks.post(
     // background. Truncated defensively — this is a display hint, not
     // load-bearing data.
     const initialTitle = payload?.title?.trim().slice(0, MAX_TITLE_CHARS) || null;
-    const id = await repository.create(url, initialTitle, category);
+    const id = await repository.create(user.id, url, initialTitle, category);
 
     // Only ever suggest a category when none was supplied — a real folder
     // path always wins, regardless of what the client sent for this flag.
@@ -84,7 +85,7 @@ bookmarks.post(
     // Fire-and-forget background job. Cloudflare keeps the Worker instance
     // alive until this promise settles, even though the response above has
     // already been sent to the client.
-    c.executionCtx.waitUntil(pipeline.process(id, url, { suggestCategory }));
+    c.executionCtx.waitUntil(pipeline.process(user.id, id, url, { suggestCategory }));
 
     return c.json({ id, status: 'pending' }, 202);
   }
@@ -105,8 +106,9 @@ bookmarks.get('/', async (c) => {
   const limit = clampInt(c.req.query('limit'), 1, MAX_LIST_LIMIT, DEFAULT_LIST_LIMIT);
   const offset = clampInt(c.req.query('offset'), 0, Number.MAX_SAFE_INTEGER, 0);
 
+  const user = c.get('user');
   const { repository } = c.get('deps');
-  const rows = await repository.list({ tag, category, limit, offset });
+  const rows = await repository.list(user.id, { tag, category, limit, offset });
 
   return c.json({
     bookmarks: rows.map((row) => ({ ...row, tags: safeParseTags(row.tags) })),
@@ -176,8 +178,9 @@ bookmarks.patch(
       fields.tags = tags;
     }
 
+    const user = c.get('user');
     const { repository } = c.get('deps');
-    const updated = await repository.updateByUrl(url, fields);
+    const updated = await repository.updateByUrl(user.id, url, fields);
 
     if (!updated) {
       return c.json({ error: 'Not found' }, 404);
@@ -199,8 +202,9 @@ bookmarks.delete('/', async (c) => {
     return c.json({ error: 'A valid "url" query parameter is required' }, 400);
   }
 
+  const user = c.get('user');
   const { repository, semanticIndex } = c.get('deps');
-  const deletedId = await repository.deleteByUrl(url);
+  const deletedId = await repository.deleteByUrl(user.id, url);
 
   if (!deletedId) {
     return c.json({ error: 'Not found' }, 404);
@@ -225,8 +229,9 @@ bookmarks.delete('/', async (c) => {
  * Registered above /:id so it isn't captured by that dynamic param route.
  */
 bookmarks.get('/url-categories', async (c) => {
+  const user = c.get('user');
   const { repository } = c.get('deps');
-  const rows = await repository.listUrlCategories();
+  const rows = await repository.listUrlCategories(user.id);
 
   const categories: Record<string, string | null> = {};
   for (const row of rows) {
@@ -246,8 +251,9 @@ bookmarks.get('/:id', async (c) => {
     return c.json({ error: 'Invalid id' }, 400);
   }
 
+  const user = c.get('user');
   const { repository } = c.get('deps');
-  const row = await repository.findById(id);
+  const row = await repository.findById(user.id, id);
 
   if (!row) {
     return c.json({ error: 'Not found' }, 404);

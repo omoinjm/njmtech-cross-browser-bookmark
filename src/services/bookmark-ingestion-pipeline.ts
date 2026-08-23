@@ -31,7 +31,7 @@ export class BookmarkIngestionPipeline {
     private readonly semanticIndex: SemanticIndex
   ) {}
 
-  async process(id: number, url: string, options: ProcessOptions): Promise<void> {
+  async process(userId: number, id: number, url: string, options: ProcessOptions): Promise<void> {
     try {
       const { title, bodyText } = await this.scraper.scrape(url);
       const tags = await this.tagger.generateTags(title, bodyText);
@@ -40,10 +40,10 @@ export class BookmarkIngestionPipeline {
       await this.repository.markProcessed(id, resolvedTitle, bodyText, tags);
 
       if (options.suggestCategory) {
-        await this.applyCategorySuggestion(id, title, bodyText);
+        await this.applyCategorySuggestion(userId, id, title, bodyText);
       }
 
-      await this.indexForSemanticSearch(id, resolvedTitle, bodyText);
+      await this.indexForSemanticSearch(userId, id, resolvedTitle, bodyText);
     } catch (err) {
       console.error(`[BookmarkIngestionPipeline] failed for bookmark ${id} (${url}):`, err);
       await this.repository.markFailed(id);
@@ -57,15 +57,15 @@ export class BookmarkIngestionPipeline {
    * already on the row; no re-scrape. Called from bookmarks.ts's dedupe path
    * when a re-synced bookmark already exists but still has no category.
    */
-  async categorizeExisting(id: number): Promise<void> {
-    const bookmark = await this.repository.findById(id);
+  async categorizeExisting(userId: number, id: number): Promise<void> {
+    const bookmark = await this.repository.findById(userId, id);
     if (!bookmark || bookmark.category) return;
 
-    await this.applyCategorySuggestion(id, bookmark.title ?? '', bookmark.body_text ?? '');
+    await this.applyCategorySuggestion(userId, id, bookmark.title ?? '', bookmark.body_text ?? '');
   }
 
-  private async applyCategorySuggestion(id: number, title: string, bodyText: string): Promise<void> {
-    const existingCategories = (await this.repository.listCategories()).map((c) => c.category);
+  private async applyCategorySuggestion(userId: number, id: number, title: string, bodyText: string): Promise<void> {
+    const existingCategories = (await this.repository.listCategories(userId)).map((c) => c.category);
     const suggestion = await this.categoryClassifier.classify(title, bodyText, existingCategories);
     if (suggestion) {
       await this.repository.updateCategory(id, suggestion);
@@ -76,10 +76,10 @@ export class BookmarkIngestionPipeline {
   // bookmark is still fully usable via keyword search either way. Also used
   // by the /admin/backfill-embeddings route for anything created before
   // this existed (see that route for why embedded_at makes this idempotent).
-  private async indexForSemanticSearch(id: number, title: string, bodyText: string): Promise<void> {
+  private async indexForSemanticSearch(userId: number, id: number, title: string, bodyText: string): Promise<void> {
     try {
       const vector = await this.embeddingGenerator.embed(buildEmbeddingInput(title, bodyText));
-      await this.semanticIndex.upsert(id, vector);
+      await this.semanticIndex.upsert(id, userId, vector);
       await this.repository.markEmbedded(id);
     } catch (err) {
       console.error(`[BookmarkIngestionPipeline] embedding failed for bookmark ${id}:`, err);

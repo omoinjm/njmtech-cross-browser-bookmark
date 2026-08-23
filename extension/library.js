@@ -848,9 +848,18 @@ function appendHighlightedSnippet(container, snippet) {
   }
 }
 
+// Authentication is a per-account session token (obtained via the popup's
+// Account tab logging in), not a static config-file secret — read fresh on
+// every request so a logout/re-login in the popup takes effect immediately.
+async function getSessionToken() {
+  const { sessionToken } = await browser.storage.local.get('sessionToken');
+  return sessionToken || null;
+}
+
 async function apiGet(path) {
+  const sessionToken = await getSessionToken();
   const response = await fetch(`${WORKER_API_URL}${path}`, {
-    headers: { Authorization: `Bearer ${API_TOKEN}` },
+    headers: { Authorization: `Bearer ${sessionToken}` },
   });
   if (!response.ok) {
     throw new Error(`Worker responded ${response.status}`);
@@ -859,11 +868,12 @@ async function apiGet(path) {
 }
 
 async function apiPost(path, body) {
+  const sessionToken = await getSessionToken();
   const response = await fetch(`${WORKER_API_URL}${path}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${API_TOKEN}`,
+      Authorization: `Bearer ${sessionToken}`,
     },
     body: JSON.stringify(body),
   });
@@ -875,11 +885,12 @@ async function apiPost(path, body) {
 }
 
 async function apiPatch(path, body) {
+  const sessionToken = await getSessionToken();
   const response = await fetch(`${WORKER_API_URL}${path}`, {
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${API_TOKEN}`,
+      Authorization: `Bearer ${sessionToken}`,
     },
     body: JSON.stringify(body),
   });
@@ -891,9 +902,10 @@ async function apiPatch(path, body) {
 }
 
 async function apiDelete(path) {
+  const sessionToken = await getSessionToken();
   const response = await fetch(`${WORKER_API_URL}${path}`, {
     method: 'DELETE',
-    headers: { Authorization: `Bearer ${API_TOKEN}` },
+    headers: { Authorization: `Bearer ${sessionToken}` },
   });
   if (!response.ok) {
     const errorBody = await response.json().catch(() => null);

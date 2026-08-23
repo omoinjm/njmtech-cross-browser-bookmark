@@ -1,10 +1,10 @@
 import { Hono } from 'hono';
 import type { AppEnv } from '../../http-context';
-import { requireApiToken } from '../../middleware/require-api-token';
+import { requireSession } from '../../middleware/require-session';
 
 export const tags = new Hono<AppEnv>();
 
-tags.use('*', requireApiToken);
+tags.use('*', requireSession);
 
 /**
  * GET /api/v1/tags
@@ -12,7 +12,8 @@ tags.use('*', requireApiToken);
  * the category sidebar on the extension's Library page.
  */
 tags.get('/', async (c) => {
+  const user = c.get('user');
   const { repository } = c.get('deps');
-  const results = await repository.listTags();
+  const results = await repository.listTags(user.id);
   return c.json({ tags: results });
 });

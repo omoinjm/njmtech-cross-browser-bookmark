@@ -358,9 +358,18 @@ function debounce(fn, delayMs) {
   };
 }
 
+// Authentication is a per-account session token (obtained via the Account
+// tab logging in), not a static config-file secret — read fresh on every
+// request so a logout/re-login takes effect immediately.
+async function getSessionToken() {
+  const { sessionToken } = await browser.storage.local.get('sessionToken');
+  return sessionToken || null;
+}
+
 async function apiGet(path) {
+  const sessionToken = await getSessionToken();
   const response = await fetch(`${WORKER_API_URL}${path}`, {
-    headers: { Authorization: `Bearer ${API_TOKEN}` },
+    headers: { Authorization: `Bearer ${sessionToken}` },
   });
   if (!response.ok) {
     throw new Error(`Worker responded ${response.status}`);
@@ -369,11 +378,12 @@ async function apiGet(path) {
 }
 
 async function apiPost(path, body) {
+  const sessionToken = await getSessionToken();
   const response = await fetch(`${WORKER_API_URL}${path}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${API_TOKEN}`,
+      Authorization: `Bearer ${sessionToken}`,
     },
     body: JSON.stringify(body),
   });
@@ -384,6 +394,118 @@ async function apiPost(path, body) {
   return response.json();
 }
 
+// --- Account ---
+//
+// Email + an auto-generated password (see auth.ts server-side) — no
+// third-party identity provider. Registering never returns a password
+// directly; it's emailed. The resulting session token is stored in
+// storage.local and read by every apiGet/apiPost/etc. helper above (and by
+// background.js's and library.js's own copies of the same pattern).
+
+const accountLoggedOutEl = document.getElementById('account-logged-out');
+const accountLoggedInEl = document.getElementById('account-logged-in');
+const accountEmailEl = document.getElementById('account-email');
+
+const loginForm = document.getElementById('login-form');
+const loginEmailInput = document.getElementById('login-email');
+const loginPasswordInput = document.getElementById('login-password');
+const loginStatusEl = document.getElementById('login-status');
+
+const registerForm = document.getElementById('register-form');
+const registerEmailInput = document.getElementById('register-email');
+const registerStatusEl = document.getElementById('register-status');
+
+const forgotPasswordBtn = document.getElementById('forgot-password-btn');
+const forgotPasswordStatusEl = document.getElementById('forgot-password-status');
+
+const logoutBtn = document.getElementById('logout-btn');
+
+async function refreshAccountView() {
+  const sessionToken = await getSessionToken();
+  if (!sessionToken) {
+    accountLoggedOutEl.hidden = false;
+    accountLoggedInEl.hidden = true;
+    return;
+  }
+
+  try {
+    const data = await apiGet('/auth/me');
+    accountEmailEl.textContent = data.user.email;
+    accountLoggedOutEl.hidden = true;
+    accountLoggedInEl.hidden = false;
+  } catch (err) {
+    // Session invalid/expired server-side — fall back to logged-out rather
+    // than keep showing a stale "logged in" view for a token that no
+    // longer works.
+    console.error('[Popup] Failed to load account info:', err);
+    await browser.storage.local.remove('sessionToken');
+    accountLoggedOutEl.hidden = false;
+    accountLoggedInEl.hidden = true;
+  }
+}
+
+loginForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  loginStatusEl.textContent = 'Logging in…';
+
+  try {
+    const data = await apiPost('/auth/login', {
+      email: loginEmailInput.value.trim(),
+      password: loginPasswordInput.value,
+    });
+    await browser.storage.local.set({ sessionToken: data.sessionToken });
+    loginForm.reset();
+    loginStatusEl.textContent = '';
+    await refreshAccountView();
+  } catch (err) {
+    console.error('[Popup] Login failed:', err);
+    loginStatusEl.textContent = `Login failed: ${err.message}`;
+  }
+});
+
+registerForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  registerStatusEl.textContent = 'Sending…';
+
+  try {
+    const data = await apiPost('/auth/register', { email: registerEmailInput.value.trim() });
+    registerForm.reset();
+    registerStatusEl.textContent = data.message || 'Check your email for your password';
+  } catch (err) {
+    console.error('[Popup] Registration failed:', err);
+    registerStatusEl.textContent = `Failed: ${err.message}`;
+  }
+});
+
+forgotPasswordBtn.addEventListener('click', async () => {
+  const email = loginEmailInput.value.trim();
+  if (!email) {
+    forgotPasswordStatusEl.textContent = 'Enter your email above first.';
+    return;
+  }
+
+  forgotPasswordStatusEl.textContent = 'Sending…';
+  try {
+    const data = await apiPost('/auth/reset-password', { email });
+    forgotPasswordStatusEl.textContent = data.message;
+  } catch (err) {
+    console.error('[Popup] Password reset failed:', err);
+    forgotPasswordStatusEl.textContent = `Failed: ${err.message}`;
+  }
+});
+
+logoutBtn.addEventListener('click', async () => {
+  try {
+    await apiPost('/auth/logout', {});
+  } catch (err) {
+    // The local session is cleared either way — a failed revoke call just
+    // means the server-side token lingers until it expires on its own.
+    console.error('[Popup] Logout request failed (clearing local session anyway):', err);
+  }
+  await browser.storage.local.remove('sessionToken');
+  await refreshAccountView();
+});
+
 (async function init() {
   const { syncState, recentActivity, settings } = await browser.storage.local.get([
     'syncState',
@@ -393,4 +515,5 @@ async function apiPost(path, body) {
   renderProgress(syncState);
   renderActivity(recentActivity);
   suggestCategoryToggle.checked = Boolean(settings?.suggestCategoryForUnfiled);
+  await refreshAccountView();
 })();

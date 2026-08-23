@@ -13,6 +13,7 @@
       <button class="tab-btn active" type="button" role="tab" aria-selected="true" data-tab="import">Import</button>
       <button class="tab-btn" type="button" role="tab" aria-selected="false" data-tab="suggest">Suggest</button>
       <button class="tab-btn" type="button" role="tab" aria-selected="false" data-tab="search">Search</button>
+      <button class="tab-btn" type="button" role="tab" aria-selected="false" data-tab="account">Account</button>
     </div>
 
     <section id="tab-import" class="tab-panel" role="tabpanel">
@@ -58,6 +59,33 @@
       </label>
       <p id="search-status"></p>
       <ul id="search-results"></ul>
+    </section>
+
+    <section id="tab-account" class="tab-panel" role="tabpanel" hidden>
+      <div id="account-logged-in" hidden>
+        <p>Logged in as <strong id="account-email"></strong></p>
+        <button id="logout-btn" type="button">Log out</button>
+      </div>
+
+      <div id="account-logged-out">
+        <h2>Log in</h2>
+        <form id="login-form">
+          <input id="login-email" type="email" placeholder="Email" autocomplete="username" required />
+          <input id="login-password" type="password" placeholder="Password" autocomplete="current-password" required />
+          <button type="submit">Log in</button>
+        </form>
+        <p id="login-status"></p>
+        <button id="forgot-password-btn" type="button">Forgot password?</button>
+        <p id="forgot-password-status"></p>
+
+        <h2>New here?</h2>
+        <p class="account-hint">No password to choose — we'll email you one.</p>
+        <form id="register-form">
+          <input id="register-email" type="email" placeholder="Email" autocomplete="email" required />
+          <button type="submit">Send me a password</button>
+        </form>
+        <p id="register-status"></p>
+      </div>
     </section>
 
     <script src="browser-polyfill.js"></script>

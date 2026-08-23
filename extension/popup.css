@@ -454,3 +454,78 @@ button.tab-btn:hover {
   border-radius: 0;
   padding: 0 1px;
 }
+
+/* --- Account tab --- */
+
+#tab-account h2:first-child {
+  margin-top: 0;
+}
+
+#tab-account input {
+  display: block;
+  width: 100%;
+  padding: 7px 10px;
+  margin-bottom: 6px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-primary);
+  background: var(--bg-inset);
+  border: 1px solid var(--border-default);
+  border-radius: 0;
+}
+
+#tab-account input::placeholder {
+  color: var(--text-muted);
+}
+
+#tab-account input:focus {
+  outline: none;
+  border-color: var(--accent-green);
+  box-shadow: 0 0 0 1px var(--accent-green), 0 0 8px var(--accent-green-glow);
+}
+
+.account-hint {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: 0 0 8px;
+}
+
+#login-status,
+#register-status,
+#forgot-password-status {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  min-height: 1.2em;
+  margin: 0 0 8px;
+}
+
+#forgot-password-btn {
+  width: auto;
+  padding: 4px 0;
+  margin-bottom: 4px;
+  font-size: 11px;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--text-secondary);
+  border: none;
+}
+
+#forgot-password-btn:hover {
+  color: var(--accent-green);
+  background: none;
+  box-shadow: none;
+  text-decoration: underline;
+}
+
+#account-logged-in p {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 4px 0 10px;
+}
+
+#account-email {
+  color: var(--text-primary);
+}

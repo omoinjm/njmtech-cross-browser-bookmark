@@ -10,18 +10,15 @@ const path = require('path');
  *
  * The extension is copied into a throwaway temp directory first, with a
  * stub config.js written in there (never in the real extension/ directory):
- * extension/config.js is gitignored, holds a real API token, and won't even
- * exist on a fresh checkout (e.g. in CI) — the fixture must never depend on
- * it being present, and must never risk overwriting a developer's real one.
+ * extension/config.js is gitignored and won't even exist on a fresh
+ * checkout (e.g. in CI) — the fixture must never depend on it being
+ * present, and must never risk overwriting a developer's real one.
  */
 const test = base.extend({
   context: async ({}, use) => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bookmark-ext-'));
     fs.cpSync(path.resolve(__dirname, '../extension'), tmpDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(tmpDir, 'config.js'),
-      "self.API_TOKEN = 'test-token';\nself.WORKER_API_URL = 'https://example.invalid/api/v1';\n"
-    );
+    fs.writeFileSync(path.join(tmpDir, 'config.js'), "self.WORKER_API_URL = 'https://example.invalid/api/v1';\n");
 
     // headless: false + the explicit --headless=new CLI flag, not headless:
     // true — Chromium's old headless mode can't load extensions at all, and
@@ -30,6 +27,21 @@ const test = base.extend({
     const context = await chromium.launchPersistentContext('', {
       headless: false,
       args: [`--disable-extensions-except=${tmpDir}`, `--load-extension=${tmpDir}`, '--headless=new'],
+    });
+
+    // Auth is now a per-account session token in storage.local (no more
+    // static config.js token) — seeded here, once, for every extension page
+    // this context ever opens, so existing tests don't each need their own
+    // login flow just to exercise already-authenticated behavior. Deliberately
+    // chrome.storage, not browser.storage: this init script can run before
+    // browser-polyfill.js has defined the `browser` global on a fresh
+    // navigation, but Chromium's native `chrome.*` APIs are always there.
+    // storage.local is shared across every extension context (background
+    // included), so a write from a page is visible to background.js too.
+    await context.addInitScript(() => {
+      if (typeof chrome !== 'undefined' && chrome.storage) {
+        chrome.storage.local.set({ sessionToken: 'test-session-token' });
+      }
     });
 
     await use(context);
