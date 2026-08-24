@@ -1,0 +1,257 @@
+/* Design tokens copied from extension/theme.css — this folder deploys
+   independently (GitHub Pages, no build step), so the palette is duplicated
+   here rather than shared across a build, to keep it self-contained. Keep
+   these two in sync by hand if the extension's palette changes. */
+:root {
+  --bg-page: #0b0f14;
+  --bg-surface: #111a21;
+  --bg-surface-hover: #16212a;
+  --bg-inset: #0d1117;
+
+  --accent-green: #9fef00;
+  --accent-green-dim: #6fae1f;
+  --accent-green-glow: rgba(159, 239, 0, 0.35);
+
+  --text-primary: #e6edf3;
+  --text-secondary: #9aa7b0;
+  --text-muted: #5c6773;
+
+  --border-default: #22303a;
+  --border-strong: #2f4550;
+
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", "Segoe UI Mono", "Roboto Mono", Menlo, Consolas, monospace;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg-page);
+  color: var(--text-primary);
+  font: 15px/1.6 var(--font-sans);
+}
+
+a {
+  color: inherit;
+}
+
+code {
+  font-family: var(--font-mono);
+  background: var(--bg-inset);
+  border: 1px solid var(--border-default);
+  padding: 1px 5px;
+  font-size: 0.9em;
+}
+
+.btn {
+  display: inline-block;
+  padding: 10px 18px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  text-decoration: none;
+  border-radius: 0;
+  border: 1px solid var(--accent-green);
+  color: var(--accent-green);
+  background: transparent;
+  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.btn:hover {
+  background: var(--accent-green);
+  color: var(--bg-page);
+  box-shadow: 0 0 12px var(--accent-green-glow);
+}
+
+.btn-primary {
+  background: var(--accent-green);
+  color: var(--bg-page);
+}
+
+.btn-primary:hover {
+  box-shadow: 0 0 16px var(--accent-green-glow);
+}
+
+.site-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.wordmark {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  letter-spacing: 0.02em;
+  text-decoration: none;
+  color: var(--text-primary);
+}
+
+main {
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+.hero {
+  text-align: center;
+  padding: 64px 0 48px;
+}
+
+.badge {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-surface);
+  padding: 5px 12px;
+  margin-bottom: 20px;
+}
+
+.hero h1 {
+  font-family: var(--font-mono);
+  font-size: clamp(28px, 5vw, 42px);
+  letter-spacing: 0.01em;
+  margin: 0 0 16px;
+}
+
+.hero h1::before {
+  content: "> ";
+  color: var(--accent-green-dim);
+}
+
+.tagline {
+  max-width: 640px;
+  margin: 0 auto 32px;
+  color: var(--text-secondary);
+  font-size: 16px;
+}
+
+.cta-row {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-bottom: 48px;
+}
+
+.stats {
+  display: flex;
+  gap: 40px;
+  justify-content: center;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.stat-value {
+  font-family: var(--font-mono);
+  font-size: 28px;
+  color: var(--accent-green);
+}
+
+.stat-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.features {
+  padding: 32px 0 56px;
+}
+
+.features h2,
+.install h2 {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-default);
+  padding-bottom: 8px;
+  margin: 0 0 24px;
+}
+
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.feature-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  padding: 18px;
+  transition: border-color 0.15s ease;
+}
+
+.feature-card:hover {
+  border-color: var(--accent-green-dim);
+}
+
+.feature-card h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+  color: var(--text-primary);
+}
+
+.feature-card p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13.5px;
+}
+
+.install {
+  padding: 0 0 64px;
+  text-align: center;
+}
+
+.install p {
+  max-width: 560px;
+  margin: 0 auto 24px;
+  color: var(--text-secondary);
+}
+
+.site-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  border-top: 1px solid var(--border-default);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.site-footer a {
+  color: var(--text-secondary);
+  text-decoration: none;
+}
+
+.site-footer a:hover {
+  color: var(--accent-green);
+}
+
+@media (max-width: 480px) {
+  .site-footer {
+    flex-direction: column;
+    gap: 8px;
+    text-align: center;
+  }
+}

@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bookmark Sync Engine</title>
+    <meta
+      name="description"
+      content="A personal, cross-browser bookmark sync engine. A browser extension that forwards every new bookmark to a Cloudflare Worker for AI tagging, categorization, and full-text/semantic search."
+    />
+
+    <meta property="og:title" content="Bookmark Sync Engine" />
+    <meta property="og:description" content="A personal, cross-browser bookmark sync engine — with AI tagging, AI category suggestions, and full-text/semantic search." />
+    <meta property="og:image" content="assets/icons/icon128.png" />
+    <meta property="og:type" content="website" />
+
+    <link rel="icon" type="image/png" sizes="16x16" href="assets/icons/icon16.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="assets/icons/icon32.png" />
+    <link rel="icon" type="image/png" sizes="48x48" href="assets/icons/icon48.png" />
+    <link rel="icon" type="image/png" sizes="128x128" href="assets/icons/icon128.png" />
+
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="wordmark" href="#top">
+        <img src="assets/icons/icon32.png" alt="" width="24" height="24" />
+        <span>Bookmark Sync Engine</span>
+      </a>
+      <a class="btn btn-outline" href="https://github.com/omoinjm/njmtech-cross-browser-bookmark" target="_blank" rel="noopener noreferrer">
+        GitHub
+      </a>
+    </header>
+
+    <main>
+      <section id="top" class="hero">
+        <span class="badge">Browser Extension · Chrome · Edge · Firefox</span>
+        <h1>Bookmark Sync Engine</h1>
+        <p class="tagline">
+          A personal, cross-browser bookmark sync engine. A lightweight extension forwards every new bookmark to a
+          Cloudflare Worker, which scrapes the page, generates tags with AI, and indexes everything for search — all
+          asynchronously, so your browser never waits on it.
+        </p>
+        <div class="cta-row">
+          <a class="btn btn-primary" href="https://github.com/omoinjm/njmtech-cross-browser-bookmark" target="_blank" rel="noopener noreferrer">
+            View on GitHub
+          </a>
+          <a class="btn btn-outline" href="#features">See features</a>
+        </div>
+
+        <div class="stats" id="repo-stats" aria-live="polite">
+          <div class="stat">
+            <span class="stat-value" id="stat-stars">—</span>
+            <span class="stat-label">Stars</span>
+          </div>
+          <div class="stat">
+            <span class="stat-value" id="stat-forks">—</span>
+            <span class="stat-label">Forks</span>
+          </div>
+        </div>
+      </section>
+
+      <section id="features" class="features">
+        <h2>Features</h2>
+        <div class="feature-grid">
+          <article class="feature-card">
+            <h3>Cross-browser</h3>
+            <p>One codebase, real MV3 extension on Chrome, Edge, and Firefox via <code>webextension-polyfill</code>.</p>
+          </article>
+          <article class="feature-card">
+            <h3>AI tagging</h3>
+            <p>Every new bookmark is scraped and tagged automatically by a Workers AI model — no manual filing.</p>
+          </article>
+          <article class="feature-card">
+            <h3>AI category suggestions</h3>
+            <p>Unfiled bookmarks get a suggested category, and a larger model can propose whole-category renames and merges.</p>
+          </article>
+          <article class="feature-card">
+            <h3>Full-text search</h3>
+            <p>BM25-ranked full-text search over titles, tags, and scraped page content, with AI query expansion when an exact search comes up empty.</p>
+          </article>
+          <article class="feature-card">
+            <h3>Semantic (AI) search</h3>
+            <p>Meaning-based search that finds a bookmark even when its title never mentions your search terms.</p>
+          </article>
+          <article class="feature-card">
+            <h3>Bulk import</h3>
+            <p>Import your entire existing bookmark tree in one go, with smart skip-unchanged logic on repeat runs.</p>
+          </article>
+          <article class="feature-card">
+            <h3>Library view</h3>
+            <p>A full browsable Library page — folder-tree category browsing, tag sidebar, and live search.</p>
+          </article>
+          <article class="feature-card">
+            <h3>Per-account login</h3>
+            <p>Real accounts with email-based access — your bookmarks are yours, isolated from every other account.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="install">
+        <h2>Getting it</h2>
+        <p>
+          Bookmark Sync Engine isn't listed on the Chrome or Firefox extension stores — it's a self-hosted, personal
+          project you run yourself. Clone the repo, follow the setup steps in the README, and load it as an unpacked
+          extension.
+        </p>
+        <a class="btn btn-outline" href="https://github.com/omoinjm/njmtech-cross-browser-bookmark#readme" target="_blank" rel="noopener noreferrer">
+          Read the setup guide on GitHub
+        </a>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <span>Bookmark Sync Engine</span>
+      <a href="https://github.com/omoinjm/njmtech-cross-browser-bookmark" target="_blank" rel="noopener noreferrer">github.com/omoinjm/njmtech-cross-browser-bookmark</a>
+    </footer>
+
+    <script src="script.js"></script>
+  </body>
+</html>
