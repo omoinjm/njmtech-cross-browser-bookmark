@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Azi",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "The browser extension that remembers so you don't have to. Syncs bookmarks to a personal Cloudflare-powered library with AI tagging and search.",
   "permissions": [
     "bookmarks",
