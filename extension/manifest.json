@@ -11,7 +11,7 @@
     "contextMenus"
   ],
   "host_permissions": [
-    "https://bookmarks.njmtech.co.za/*"
+    "https://api.bookmark.njmtech.co.za/*"
   ],
   "background": {
     "service_worker": "background.js",

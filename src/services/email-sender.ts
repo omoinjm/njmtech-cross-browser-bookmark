@@ -8,7 +8,9 @@ export interface EmailSender {
 }
 
 const TEMPLATE_API_URL = 'https://api.template.njmtech.co.za/template';
-const LOGIN_URL = 'https://bookmarks.njmtech.co.za';
+// The marketing site, not the API — the API's own root is just a JSON
+// health-check blob, not something a human should land on from an email.
+const LOGIN_URL = 'https://bookmark.njmtech.co.za';
 
 /**
  * Talks to the njmtech-email-template-api's `bookmark-sync-engine` client

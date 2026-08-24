@@ -10,4 +10,4 @@
 // background "scripts" array, or library.html/popup.html via a plain
 // <script> tag. Plain top-level `const` doesn't reliably cross the
 // importScripts boundary the way an explicit global assignment does.
-self.WORKER_API_URL = 'https://bookmarks.njmtech.co.za/api/v1';
+self.WORKER_API_URL = 'https://api.bookmark.njmtech.co.za/api/v1';

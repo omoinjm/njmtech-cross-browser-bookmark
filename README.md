@@ -97,7 +97,7 @@ Neither script touches `extension/config.js` (gitignored, holds a real API token
 
 ## Deploying
 
-The Worker is deployed at `bookmarks.njmtech.co.za` via the `routes` entry in `wrangler.toml` (a Cloudflare custom domain — requires `njmtech.co.za` to be an active zone on the same Cloudflare account).
+The Worker is deployed at `api.bookmark.njmtech.co.za` via the `routes` entry in `wrangler.toml` (a Cloudflare custom domain — requires `njmtech.co.za` to be an active zone on the same Cloudflare account).
 
 **Automatic (recommended):** pushing to `main` triggers [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml), which typechecks and then runs `wrangler deploy`. This requires two repository secrets under **Settings → Secrets and variables → Actions**:
 
@@ -145,7 +145,7 @@ npm run db:init:remote
 
 ## Loading the browser extension
 
-The extension already points at `https://bookmarks.njmtech.co.za` (`extension/manifest.json` and `extension/background.js`), which is deployed as a Cloudflare custom domain — see below.
+The extension already points at `https://api.bookmark.njmtech.co.za` (`extension/manifest.json` and `extension/background.js`), which is deployed as a Cloudflare custom domain — see below.
 
 1. Copy `extension/config.example.js` to `extension/config.js` and set `API_TOKEN` to the same value you set with `wrangler secret put API_TOKEN` (see [Security](#security)). `config.js` is gitignored — it holds a real secret.
 2. In Chrome/Edge, go to `chrome://extensions`, enable **Developer mode**, and click **Load unpacked** → select the `extension/` folder. (Firefox: `about:debugging` → **This Firefox** → **Load Temporary Add-on** → select `extension/manifest.json`. Firefox drops temporary add-ons on restart, so you'll need to reload it each session.)
