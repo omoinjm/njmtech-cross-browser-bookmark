@@ -51,6 +51,27 @@ function collectErrors(page) {
   return errors;
 }
 
+test('Import/Suggest/Search tabs stay hidden for a logged-out visitor', async ({ context, extensionId }) => {
+  const page = await context.newPage();
+  const errors = collectErrors(page);
+  await mockWorkerApi(page);
+
+  // Overrides the fixture's seeded token — this test is specifically about
+  // the logged-out landing state, before it ever calls /auth/me.
+  await page.addInitScript(() => chrome.storage.local.remove('sessionToken'));
+
+  await page.goto(`chrome-extension://${extensionId}/popup.html`);
+  await page.waitForSelector('#tab-bar');
+
+  await expect(page.locator('.tab-btn[data-tab="import"]')).toBeHidden();
+  await expect(page.locator('.tab-btn[data-tab="suggest"]')).toBeHidden();
+  await expect(page.locator('.tab-btn[data-tab="search"]')).toBeHidden();
+  await expect(page.locator('.tab-btn[data-tab="account"]')).toBeVisible();
+  await expect(page.locator('#account-logged-out')).toBeVisible();
+
+  expect(errors, `console/page errors: ${errors.join('; ')}`).toEqual([]);
+});
+
 test('popup loads cleanly and all three tabs switch correctly', async ({ context, extensionId }) => {
   const page = await context.newPage();
   const errors = collectErrors(page);
@@ -122,6 +143,9 @@ test('account tab logs out, registers, and logs back in', async ({ context, exte
     () => new Promise((resolve) => chrome.storage.local.get('sessionToken', (r) => resolve(r.sessionToken)))
   );
   expect(tokenAfterLogout).toBeUndefined();
+  await expect(page.locator('.tab-btn[data-tab="import"]')).toBeHidden();
+  await expect(page.locator('.tab-btn[data-tab="suggest"]')).toBeHidden();
+  await expect(page.locator('.tab-btn[data-tab="search"]')).toBeHidden();
 
   await page.fill('#register-email', 'jane@example.com');
   await page.click('#register-form button[type="submit"]');
@@ -135,6 +159,9 @@ test('account tab logs out, registers, and logs back in', async ({ context, exte
   await expect(page.locator('#account-logged-in')).toBeVisible();
   await expect(page.locator('#account-email')).toHaveText('jane@example.com');
   expect(loginAttempts).toEqual([{ email: 'jane@example.com', password: 'generated-password' }]);
+  // Reappear, but don't yank the user off the confirmation they just landed on.
+  await expect(page.locator('.tab-btn[data-tab="import"]')).toBeVisible();
+  await expect(page.locator('.tab-btn[data-tab="account"]')).toHaveClass(/active/);
 
   expect(errors, `console/page errors: ${errors.join('; ')}`).toEqual([]);
 });

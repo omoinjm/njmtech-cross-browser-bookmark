@@ -420,11 +420,33 @@ const forgotPasswordStatusEl = document.getElementById('forgot-password-status')
 
 const logoutBtn = document.getElementById('logout-btn');
 
+// Import/Suggest/Search all call the authenticated API, so there's nothing
+// for a logged-out visitor to do there — hide those tabs until a session
+// exists, rather than showing them and letting every request 401.
+const AUTH_GATED_TABS = ['import', 'suggest', 'search'];
+
+// Only forces navigation on the logged-out side (off a tab that just got
+// hidden). On login it deliberately leaves the user on the Account tab —
+// forcing them over to Import would yank away the "Logged in as …"
+// confirmation they just triggered. The one-time landing-on-Import for an
+// already-valid session is handled separately, in init().
+function setTabsAuthGate(loggedIn) {
+  tabBtns.forEach((btn) => {
+    if (AUTH_GATED_TABS.includes(btn.dataset.tab)) btn.hidden = !loggedIn;
+  });
+
+  const activeTab = document.querySelector('.tab-btn.active')?.dataset.tab;
+  if (!loggedIn && activeTab !== 'account') {
+    switchTab('account');
+  }
+}
+
 async function refreshAccountView() {
   const sessionToken = await getSessionToken();
   if (!sessionToken) {
     accountLoggedOutEl.hidden = false;
     accountLoggedInEl.hidden = true;
+    setTabsAuthGate(false);
     return;
   }
 
@@ -433,6 +455,7 @@ async function refreshAccountView() {
     accountEmailEl.textContent = data.user.email;
     accountLoggedOutEl.hidden = true;
     accountLoggedInEl.hidden = false;
+    setTabsAuthGate(true);
   } catch (err) {
     // Session invalid/expired server-side — fall back to logged-out rather
     // than keep showing a stale "logged in" view for a token that no
@@ -441,6 +464,7 @@ async function refreshAccountView() {
     await browser.storage.local.remove('sessionToken');
     accountLoggedOutEl.hidden = false;
     accountLoggedInEl.hidden = true;
+    setTabsAuthGate(false);
   }
 }
 
@@ -507,13 +531,21 @@ logoutBtn.addEventListener('click', async () => {
 });
 
 (async function init() {
-  const { syncState, recentActivity, settings } = await browser.storage.local.get([
+  const { syncState, recentActivity, settings, sessionToken } = await browser.storage.local.get([
     'syncState',
     'recentActivity',
     'settings',
+    'sessionToken',
   ]);
   renderProgress(syncState);
   renderActivity(recentActivity);
   suggestCategoryToggle.checked = Boolean(settings?.suggestCategoryForUnfiled);
+  // Optimistic, based on the stored token alone — avoids a flash of hidden
+  // tabs while refreshAccountView()'s /auth/me call confirms it; that call
+  // corrects back to logged-out (and off of Import) if the token turned out
+  // to be stale. Landing on Import (rather than Account) is a one-time
+  // default for an already-logged-in visitor opening the popup fresh.
+  setTabsAuthGate(Boolean(sessionToken));
+  if (sessionToken) switchTab('import');
   await refreshAccountView();
 })();

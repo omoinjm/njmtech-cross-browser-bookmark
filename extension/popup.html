@@ -10,13 +10,13 @@
     <h1>Bookmark Sync Engine</h1>
 
     <div id="tab-bar" role="tablist">
-      <button class="tab-btn active" type="button" role="tab" aria-selected="true" data-tab="import">Import</button>
-      <button class="tab-btn" type="button" role="tab" aria-selected="false" data-tab="suggest">Suggest</button>
-      <button class="tab-btn" type="button" role="tab" aria-selected="false" data-tab="search">Search</button>
-      <button class="tab-btn" type="button" role="tab" aria-selected="false" data-tab="account">Account</button>
+      <button class="tab-btn" type="button" role="tab" aria-selected="false" data-tab="import" hidden>Import</button>
+      <button class="tab-btn" type="button" role="tab" aria-selected="false" data-tab="suggest" hidden>Suggest</button>
+      <button class="tab-btn" type="button" role="tab" aria-selected="false" data-tab="search" hidden>Search</button>
+      <button class="tab-btn active" type="button" role="tab" aria-selected="true" data-tab="account">Account</button>
     </div>
 
-    <section id="tab-import" class="tab-panel" role="tabpanel">
+    <section id="tab-import" class="tab-panel" role="tabpanel" hidden>
       <button id="import-btn" type="button">Import all bookmarks</button>
       <button id="library-btn" type="button">View library</button>
       <p id="progress"></p>
@@ -61,7 +61,7 @@
       <ul id="search-results"></ul>
     </section>
 
-    <section id="tab-account" class="tab-panel" role="tabpanel" hidden>
+    <section id="tab-account" class="tab-panel" role="tabpanel">
       <div id="account-logged-in" hidden>
         <p>Logged in as <strong id="account-email"></strong></p>
         <button id="logout-btn" type="button">Log out</button>
