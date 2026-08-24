@@ -122,6 +122,11 @@ button:disabled {
   color: var(--status-danger);
 }
 
+#activity-list li.queued::before {
+  content: "⏳";
+  color: var(--status-warning);
+}
+
 #activity-list .label {
   overflow: hidden;
   text-overflow: ellipsis;

@@ -529,10 +529,76 @@ test('background service worker starts cleanly with commands/omnibox/contextMenu
     omnibox: typeof browser.omnibox?.onInputChanged?.addListener === 'function',
     commands: typeof browser.commands?.onCommand?.addListener === 'function',
     contextMenus: typeof browser.contextMenus?.create === 'function',
+    alarms: typeof browser.alarms?.create === 'function',
   }));
 
-  expect(apisPresent).toEqual({ omnibox: true, commands: true, contextMenus: true });
+  expect(apisPresent).toEqual({ omnibox: true, commands: true, contextMenus: true, alarms: true });
   expect(errors).toEqual([]);
+});
+
+test('a capture made while logged out is queued, then flushed automatically on login', async ({
+  context,
+  extensionId,
+}) => {
+  const posted = [];
+  // context.route(), not page.route(): syncBookmark/attemptSync run in
+  // background.js's service worker context, driven directly below via
+  // sw.evaluate — no page is ever opened in this test.
+  await context.route('https://example.invalid/api/v1/**', (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (url.pathname.endsWith('/bookmarks') && request.method() === 'POST') {
+      posted.push(request.postDataJSON());
+      return route.fulfill({
+        status: 202,
+        contentType: 'application/json',
+        body: JSON.stringify({ id: posted.length, status: 'pending' }),
+      });
+    }
+    return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+  });
+
+  const sw = context.serviceWorkers().find((worker) => new URL(worker.url()).host === extensionId);
+  expect(sw).toBeTruthy();
+
+  // No page has ever been opened in this test, so fixtures.js's seeded
+  // sessionToken (written by a page-level addInitScript) never ran — this
+  // context starts genuinely logged out.
+  const captureResult = await sw.evaluate(
+    ({ url, title, category }) => syncBookmark(url, title, category),
+    { url: 'https://example.com/offline-test', title: 'Offline Test', category: 'Test Category' }
+  );
+  expect(captureResult).toEqual({ queued: true });
+  expect(posted).toEqual([]); // never actually reached the Worker
+
+  const pendingAfterQueue = await sw.evaluate(
+    () => new Promise((resolve) => chrome.storage.local.get('pendingBookmarks', (r) => resolve(r.pendingBookmarks)))
+  );
+  expect(pendingAfterQueue).toEqual([
+    {
+      url: 'https://example.com/offline-test',
+      title: 'Offline Test',
+      category: 'Test Category',
+      queuedAt: expect.any(Number),
+    },
+  ]);
+
+  // Logging in fires background.js's storage.onChanged listener, which
+  // flushes the queue on its own — nothing else needs to trigger it.
+  await sw.evaluate(
+    () => new Promise((resolve) => chrome.storage.local.set({ sessionToken: 'test-session-token' }, resolve))
+  );
+
+  await expect
+    .poll(async () => {
+      const { pendingBookmarks = [] } = await sw.evaluate(
+        () => new Promise((resolve) => chrome.storage.local.get('pendingBookmarks', (r) => resolve(r)))
+      );
+      return pendingBookmarks.length;
+    })
+    .toBe(0);
+
+  expect(posted).toEqual([{ url: 'https://example.com/offline-test', title: 'Offline Test', category: 'Test Category' }]);
 });
 
 test('manifest keeps both Chrome/Edge and Firefox background entry points', async () => {

@@ -51,6 +51,19 @@ const FETCH_TIMEOUT_MS = 20000;
 
 const RECENT_ACTIVITY_LIMIT = 20;
 
+// --- Offline / logged-out queueing ---
+//
+// A capture attempted while logged out or with the Worker unreachable would
+// otherwise just be lost (recorded as "failed" and never retried). Instead
+// it's kept here and retried once there's a valid session and the Worker
+// responds again — on login, on a periodic alarm (for the unattended
+// "network came back on its own" case), and opportunistically right after
+// any other capture succeeds.
+const PENDING_BOOKMARKS_KEY = 'pendingBookmarks';
+const PENDING_BOOKMARKS_LIMIT = 500; // bounds storage.local growth over a long offline stretch
+const QUEUE_RETRY_ALARM = 'flush-pending-bookmarks';
+const QUEUE_RETRY_INTERVAL_MINUTES = 2;
+
 const DEFAULT_SETTINGS = {
   // On by default: an unfiled bookmark (no real folder, e.g. from Ctrl+D
   // into no folder, or the capture shortcut/context menu) should still end
@@ -211,6 +224,33 @@ browser.runtime.onInstalled.addListener(() => {
     title: 'Save to Library',
     contexts: ['page', 'link'],
   });
+
+  browser.alarms.create(QUEUE_RETRY_ALARM, { periodInMinutes: QUEUE_RETRY_INTERVAL_MINUTES });
+});
+
+// onInstalled only fires on install/update, not on every browser launch —
+// alarms do persist across restarts on their own, but re-creating here
+// (idempotent — same name just resets its schedule) plus an immediate flush
+// attempt covers "the computer was offline overnight and came back online
+// right as the browser started", not just "still running when the alarm ticks".
+browser.runtime.onStartup.addListener(() => {
+  browser.alarms.create(QUEUE_RETRY_ALARM, { periodInMinutes: QUEUE_RETRY_INTERVAL_MINUTES });
+  flushPendingBookmarks().catch((err) => console.error('[BookmarkSync] Startup flush failed:', err));
+});
+
+browser.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name !== QUEUE_RETRY_ALARM) return;
+  flushPendingBookmarks().catch((err) => console.error('[BookmarkSync] Periodic flush failed:', err));
+});
+
+// The other trigger besides connectivity: logging back in. Fires only on
+// the false->truthy transition (a fresh login), not on every storage write
+// that happens to include this key.
+browser.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local') return;
+  if (changes.sessionToken && !changes.sessionToken.oldValue && changes.sessionToken.newValue) {
+    flushPendingBookmarks().catch((err) => console.error('[BookmarkSync] Post-login flush failed:', err));
+  }
 });
 
 browser.contextMenus.onClicked.addListener((info, tab) => {
@@ -252,7 +292,7 @@ async function captureUrl(url, title) {
   await browser.notifications.create(`captured:${Date.now()}:${encodeURIComponent(url)}`, {
     type: 'basic',
     iconUrl: browser.runtime.getURL('icons/icon128.png'),
-    title: 'Saved to Library',
+    title: result?.queued ? 'Queued — will save once online' : 'Saved to Library',
     message: resolvedTitle || url,
   });
 
@@ -797,33 +837,46 @@ function recordActivity(entry) {
   return activityQueue;
 }
 
-// Returns { id, willSuggestCategory } on success (willSuggestCategory is
-// true when the Worker was asked to AI-classify this bookmark, i.e. it had
-// no real folder and the setting is on — the caller uses this to decide
-// whether polling for a notification is worthwhile), or null on failure.
-async function syncBookmark(url, title, categoryPath) {
-  try {
-    const body = { url, title };
-    let willSuggestCategory = false;
+// The actual POST attempt, shared by syncBookmark (a fresh capture) and
+// flushPendingBookmarks (a retry of something queued earlier). Returns one of:
+//   { synced: true, id, willSuggestCategory }  — the Worker accepted it
+//   { synced: false, retryable: true }         — no session, the Worker was
+//                                                 unreachable, or the session
+//                                                 turned out to be expired/
+//                                                 invalid (401): the same
+//                                                 remedy for all three is
+//                                                 "try again once logged in
+//                                                 and online", so the caller
+//                                                 queues it
+//   { synced: false, retryable: false }        — a real rejection (already
+//                                                 logged + recorded as failed)
+async function attemptSync(url, title, categoryPath) {
+  const sessionToken = await getSessionToken();
+  if (!sessionToken) {
+    return { synced: false, retryable: true };
+  }
 
-    if (categoryPath) {
-      // A real folder path always wins — never ask the AI to guess when we
-      // already know the answer.
-      body.category = categoryPath;
-    } else {
-      const settings = await getSettings();
-      if (settings.suggestCategoryForUnfiled) {
-        body.suggestCategory = true;
-        willSuggestCategory = true;
-      }
+  const body = { url, title };
+  let willSuggestCategory = false;
+
+  if (categoryPath) {
+    // A real folder path always wins — never ask the AI to guess when we
+    // already know the answer.
+    body.category = categoryPath;
+  } else {
+    const settings = await getSettings();
+    if (settings.suggestCategoryForUnfiled) {
+      body.suggestCategory = true;
+      willSuggestCategory = true;
     }
+  }
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
-    let response;
+  let response;
+  try {
     try {
-      const sessionToken = await getSessionToken();
       response = await fetch(`${WORKER_API_URL}/bookmarks`, {
         method: 'POST',
         headers: {
@@ -836,28 +889,108 @@ async function syncBookmark(url, title, categoryPath) {
     } finally {
       clearTimeout(timeoutId);
     }
+  } catch (err) {
+    // Network failure, Worker unreachable, timeout (AbortError), etc. —
+    // exactly the "internet isn't working" case, distinct from a real
+    // rejection below.
+    console.error('[BookmarkSync] Failed to reach Worker:', err);
+    return { synced: false, retryable: true };
+  }
 
-    if (!response.ok) {
-      const errorBody = await response.text().catch(() => '');
-      console.error(`[BookmarkSync] Worker responded ${response.status}: ${errorBody}`);
-      await recordActivity({ url, title, category: categoryPath, status: 'failed' });
-      return null;
+  if (response.status === 401) {
+    // Session expired/invalid server-side — same fix as not being logged in
+    // at all: retry once there's a valid session again.
+    return { synced: false, retryable: true };
+  }
+
+  if (!response.ok) {
+    const errorBody = await response.text().catch(() => '');
+    console.error(`[BookmarkSync] Worker responded ${response.status}: ${errorBody}`);
+    await recordActivity({ url, title, category: categoryPath, status: 'failed' });
+    return { synced: false, retryable: false };
+  }
+
+  const data = await response.json();
+  console.log('[BookmarkSync] Synced bookmark:', data);
+  await recordActivity({ url, title: title || url, category: categoryPath, status: 'synced' });
+  // A dedupe hit (existing bookmark, response includes `message`) never
+  // runs the classifier for THIS request even if suggestCategory was
+  // sent — see bookmarks.ts. Only a fresh create (no `message`) actually
+  // kicks off the background pipeline that might assign a category.
+  return { synced: true, id: data.id, willSuggestCategory: willSuggestCategory && !data.message };
+}
+
+// Returns { id, willSuggestCategory } if actually synced, { queued: true } if
+// queued for a later retry (see attemptSync's retryable cases above), or
+// null if the Worker rejected it outright.
+async function syncBookmark(url, title, categoryPath) {
+  const result = await attemptSync(url, title, categoryPath);
+
+  if (result.synced) {
+    // Proves login + connectivity are both fine right now — a good moment to
+    // also retry anything still queued from earlier, instead of waiting for
+    // the next alarm tick.
+    flushPendingBookmarks().catch((err) => console.error('[BookmarkSync] Opportunistic flush failed:', err));
+    return { id: result.id, willSuggestCategory: result.willSuggestCategory };
+  }
+
+  if (result.retryable) {
+    await queueBookmark(url, title, categoryPath);
+    return { queued: true };
+  }
+
+  return null;
+}
+
+// Queues a capture that couldn't go out right now. Replaces any existing
+// queued entry for the same url instead of piling up duplicates (e.g. a
+// title edit while still offline) — the latest attempt wins.
+async function queueBookmark(url, title, categoryPath) {
+  const { [PENDING_BOOKMARKS_KEY]: pending = [] } = await browser.storage.local.get(PENDING_BOOKMARKS_KEY);
+  const deduped = pending.filter((item) => item.url !== url);
+  deduped.push({ url, title, category: categoryPath, queuedAt: Date.now() });
+  await browser.storage.local.set({ [PENDING_BOOKMARKS_KEY]: deduped.slice(-PENDING_BOOKMARKS_LIMIT) });
+  await recordActivity({ url, title, category: categoryPath, status: 'queued' });
+}
+
+// Retries every queued capture — called on login, periodically via an alarm,
+// and opportunistically after any other capture succeeds (see syncBookmark).
+// A no-op whenever there's nothing queued or still no session to use.
+let isFlushingPendingBookmarks = false;
+
+async function flushPendingBookmarks() {
+  if (isFlushingPendingBookmarks) return; // avoid overlapping flushes racing each other
+
+  const sessionToken = await getSessionToken();
+  if (!sessionToken) return;
+
+  const { [PENDING_BOOKMARKS_KEY]: pending = [] } = await browser.storage.local.get(PENDING_BOOKMARKS_KEY);
+  if (pending.length === 0) return;
+
+  isFlushingPendingBookmarks = true;
+  try {
+    const stillPending = [];
+
+    for (const item of pending) {
+      const result = await attemptSync(item.url, item.title, item.category);
+
+      if (result.synced) {
+        if (result.willSuggestCategory) {
+          notifyWhenCategorized(result.id, item.title || item.url).catch((err) =>
+            console.error('[BookmarkSync] notifyWhenCategorized failed:', err)
+          );
+        }
+      } else if (result.retryable) {
+        stillPending.push(item); // still offline/logged-out — try again next time
+      }
+      // A non-retryable rejection is dropped — attemptSync already recorded it as failed.
+
+      if (pending.length > 1) await sleep(IMPORT_DELAY_MS); // same spacing rationale as runImport
     }
 
-    const data = await response.json();
-    console.log('[BookmarkSync] Synced bookmark:', data);
-    await recordActivity({ url, title: title || url, category: categoryPath, status: 'synced' });
-    // A dedupe hit (existing bookmark, response includes `message`) never
-    // runs the classifier for THIS request even if suggestCategory was
-    // sent — see bookmarks.ts. Only a fresh create (no `message`) actually
-    // kicks off the background pipeline that might assign a category.
-    return { id: data.id, willSuggestCategory: willSuggestCategory && !data.message };
-  } catch (err) {
-    // Network failure, worker down, timeout (AbortError), etc. The bookmark
-    // still exists locally — it's just not synced to the backend this time.
-    console.error('[BookmarkSync] Failed to reach Worker:', err);
-    await recordActivity({ url, title, category: categoryPath, status: 'failed' });
-    return null;
+    await browser.storage.local.set({ [PENDING_BOOKMARKS_KEY]: stillPending });
+  } finally {
+    isFlushingPendingBookmarks = false;
   }
 }
 

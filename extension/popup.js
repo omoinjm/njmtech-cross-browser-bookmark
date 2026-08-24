@@ -56,7 +56,7 @@ function renderActivity(entries) {
 
   for (const entry of list) {
     const li = document.createElement('li');
-    li.className = entry.status === 'failed' ? 'failed' : 'synced';
+    li.className = entry.status === 'failed' ? 'failed' : entry.status === 'queued' ? 'queued' : 'synced';
     li.title = entry.url;
 
     // textContent, not innerHTML — a bookmark title is untrusted (user- or
