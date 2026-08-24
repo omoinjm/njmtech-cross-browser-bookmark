@@ -244,8 +244,12 @@ async function captureUrl(url, title) {
 
   // Unlike Ctrl+D (which gets the browser's own native "bookmarked" star
   // feedback), a context-menu/shortcut capture has no built-in confirmation
-  // — this is the only signal the user gets that it actually worked.
-  await browser.notifications.create(`captured:${encodeURIComponent(url)}`, {
+  // — this is the only signal the user gets that it actually worked. The id
+  // must be unique per capture, not just per url: reusing the same id for a
+  // repeat capture of the same page makes this an in-place *update* to a
+  // notification the user may have already dismissed, which most desktop
+  // notification systems don't re-surface as a new toast.
+  await browser.notifications.create(`captured:${Date.now()}:${encodeURIComponent(url)}`, {
     type: 'basic',
     iconUrl: browser.runtime.getURL('icons/icon128.png'),
     title: 'Saved to Library',
