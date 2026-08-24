@@ -154,12 +154,18 @@ test('account tab logs out, sends an access token, and logs back in', async ({ c
 
   await page.click('#send-access-btn');
   await expect(page.locator('#send-access-panel')).toBeVisible();
-  await expect(page.locator('#send-access-btn')).toBeHidden();
+  // Login is mutually exclusive with the send-access panel, not just
+  // stacked alongside it.
+  await expect(page.locator('#login-section')).toBeHidden();
 
   await page.fill('#send-access-email', 'jane@example.com');
   await page.click('#send-access-form button[type="submit"]');
   await expect(page.locator('#send-access-status')).toHaveText('Check your email for your password');
   expect(requestedPasswordEmail).toBe('jane@example.com');
+
+  await page.click('#back-to-login-btn');
+  await expect(page.locator('#login-section')).toBeVisible();
+  await expect(page.locator('#send-access-panel')).toBeHidden();
 
   await page.fill('#login-email', 'jane@example.com');
   await page.fill('#login-password', 'generated-password');

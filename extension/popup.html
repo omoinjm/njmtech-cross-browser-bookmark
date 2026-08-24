@@ -68,14 +68,16 @@
       </div>
 
       <div id="account-logged-out">
-        <h2>Log in</h2>
-        <form id="login-form">
-          <input id="login-email" type="email" placeholder="Email" autocomplete="username" required />
-          <input id="login-password" type="password" placeholder="Password" autocomplete="current-password" required />
-          <button type="submit">Log in</button>
-        </form>
-        <p id="login-status"></p>
-        <button id="send-access-btn" type="button">Send access token</button>
+        <div id="login-section">
+          <h2>Log in</h2>
+          <form id="login-form">
+            <input id="login-email" type="email" placeholder="Email" autocomplete="username" required />
+            <input id="login-password" type="password" placeholder="Password" autocomplete="current-password" required />
+            <button type="submit">Log in</button>
+          </form>
+          <p id="login-status"></p>
+          <button id="send-access-btn" type="button">Send access token</button>
+        </div>
 
         <div id="send-access-panel" hidden>
           <p class="account-hint">No password to choose — we'll email you one.</p>
@@ -84,6 +86,7 @@
             <button type="submit">Send me a password</button>
           </form>
           <p id="send-access-status"></p>
+          <button id="back-to-login-btn" type="button">Back to log in</button>
         </div>
       </div>
     </section>

@@ -500,7 +500,8 @@ button.tab-btn:hover {
   margin: 0 0 8px;
 }
 
-#send-access-btn {
+#send-access-btn,
+#back-to-login-btn {
   width: auto;
   padding: 4px 0;
   margin-bottom: 4px;
@@ -511,7 +512,8 @@ button.tab-btn:hover {
   border: none;
 }
 
-#send-access-btn:hover {
+#send-access-btn:hover,
+#back-to-login-btn:hover {
   color: var(--accent-green);
   background: none;
   box-shadow: none;

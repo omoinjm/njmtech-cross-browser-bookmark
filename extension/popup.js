@@ -406,6 +406,7 @@ const accountLoggedOutEl = document.getElementById('account-logged-out');
 const accountLoggedInEl = document.getElementById('account-logged-in');
 const accountEmailEl = document.getElementById('account-email');
 
+const loginSection = document.getElementById('login-section');
 const loginForm = document.getElementById('login-form');
 const loginEmailInput = document.getElementById('login-email');
 const loginPasswordInput = document.getElementById('login-password');
@@ -416,6 +417,7 @@ const sendAccessPanel = document.getElementById('send-access-panel');
 const sendAccessForm = document.getElementById('send-access-form');
 const sendAccessEmailInput = document.getElementById('send-access-email');
 const sendAccessStatusEl = document.getElementById('send-access-status');
+const backToLoginBtn = document.getElementById('back-to-login-btn');
 
 const logoutBtn = document.getElementById('logout-btn');
 
@@ -443,10 +445,12 @@ function setTabsAuthGate(loggedIn) {
 // The "send me a password" panel starts collapsed behind the "Send access
 // token" button every time the logged-out view is (re)shown — logging out,
 // or an expired session bouncing back to it — rather than staying open from
-// whatever state it was left in.
+// whatever state it was left in. Login and the send-access panel are
+// mutually exclusive: showing one hides the other, so a visitor who came in
+// to recover a password isn't also staring at a login form they can't use yet.
 function resetSendAccessPanel() {
+  loginSection.hidden = false;
   sendAccessPanel.hidden = true;
-  sendAccessBtn.hidden = false;
   sendAccessForm.reset();
   sendAccessStatusEl.textContent = '';
 }
@@ -499,13 +503,19 @@ loginForm.addEventListener('submit', async (event) => {
   }
 });
 
-// "Send access token" just reveals the same email+button panel a brand-new
-// visitor and someone who's forgotten their password both need — there's no
-// separate register/forgot-password split server-side either (see auth.ts's
-// /request-password), so there's none here.
+// "Send access token" swaps the login form out for the same email+button
+// panel a brand-new visitor and someone who's forgotten their password both
+// need — there's no separate register/forgot-password split server-side
+// either (see auth.ts's /request-password), so there's none here. Login
+// stays hidden until "Back to log in" swaps it back, rather than showing a
+// login form the visitor explicitly said they can't use right now.
 sendAccessBtn.addEventListener('click', () => {
-  sendAccessBtn.hidden = true;
+  loginSection.hidden = true;
   sendAccessPanel.hidden = false;
+});
+
+backToLoginBtn.addEventListener('click', () => {
+  resetSendAccessPanel();
 });
 
 sendAccessForm.addEventListener('submit', async (event) => {
