@@ -2,9 +2,11 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { secureHeaders } from 'hono/secure-headers';
 import { HTTPException } from 'hono/http-exception';
+import type { Env } from './env';
 import type { AppEnv } from './http-context';
 import { buildDependencies } from './container';
 import { v1 } from './routes/v1';
+import { runEmbeddingBackfill } from './services/embedding-backfill';
 
 const app = new Hono<AppEnv>();
 
@@ -39,4 +41,21 @@ app.onError((err, c) => {
   return c.text('Internal Server Error', 500);
 });
 
-export default app;
+export default {
+  fetch: app.fetch,
+
+  // Cloudflare Cron Trigger (see wrangler.toml's [triggers]) — catches
+  // anything the live per-bookmark embedding call missed (a transient
+  // failure) plus any backlog from before semantic search existed, without
+  // needing someone to remember to call POST /api/v1/admin/backfill-embeddings
+  // by hand. See services/embedding-backfill.ts.
+  async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext) {
+    const deps = buildDependencies(env);
+    ctx.waitUntil(
+      runEmbeddingBackfill(deps).then(
+        (result) => console.log('[scheduled] embedding backfill:', result),
+        (err) => console.error('[scheduled] embedding backfill failed:', err)
+      )
+    );
+  },
+};

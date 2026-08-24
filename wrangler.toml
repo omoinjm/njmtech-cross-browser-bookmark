@@ -35,6 +35,15 @@ binding = "BROWSER"
 binding    = "VECTORIZE"
 index_name = "bookmarks-embeddings"
 
+# --- Scheduled embedding backfill -------------------------------------------
+# Catches anything the live per-bookmark embedding call missed (a transient
+# failure) plus any backlog from before semantic search existed, without
+# relying on someone remembering to call POST /api/v1/admin/backfill-embeddings
+# by hand — see the `scheduled` handler in src/index.ts and
+# services/embedding-backfill.ts.
+[triggers]
+crons = ["*/15 * * * *"]
+
 [observability]
 enabled = true
 

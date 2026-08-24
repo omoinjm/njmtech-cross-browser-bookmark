@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import type { AppEnv } from '../../http-context';
 import { requireSession } from '../../middleware/require-session';
-import { buildEmbeddingInput } from '../../services/embedding-generator';
+import { runEmbeddingBackfillBatch } from '../../services/embedding-backfill';
 
 export const admin = new Hono<AppEnv>();
 
@@ -12,46 +12,15 @@ export const admin = new Hono<AppEnv>();
 // data, so this is intentionally not scoped to the caller's own bookmarks.
 admin.use('*', requireSession);
 
-// One Workers AI embedding call per bookmark — keeps a single request
-// bounded. Safely re-runnable: call again while `moreRemaining` is true.
-const BACKFILL_BATCH_SIZE = 50;
-
 /**
  * POST /api/v1/admin/backfill-embeddings
- * One-off, manually-triggered: generates and stores a semantic-search
- * embedding (see services/embedding-generator.ts, services/semantic-index.ts)
- * for every already-processed, owned bookmark that doesn't have one yet
- * (embedded_at IS NULL) — i.e. anything created before semantic search
- * existed. New bookmarks get embedded automatically by the ingestion
- * pipeline going forward; this only ever needs to run once per pre-existing
- * backlog, though it's safe to call again (it always re-queries for
- * whatever's still unembedded).
+ * Manual, on-demand escape hatch for the same backfill a scheduled cron
+ * trigger now runs automatically every 15 minutes (see the `scheduled`
+ * handler in src/index.ts and services/embedding-backfill.ts) — useful for
+ * forcing an immediate run instead of waiting for the next tick. One batch
+ * per call; safe to call again while `moreRemaining` is true.
  */
 admin.post('/backfill-embeddings', async (c) => {
-  const { repository, embeddingGenerator, semanticIndex } = c.get('deps');
-  const candidates = await repository.listUnembeddedProcessed(BACKFILL_BATCH_SIZE);
-
-  let embedded = 0;
-  let failed = 0;
-
-  for (const bookmark of candidates) {
-    try {
-      const vector = await embeddingGenerator.embed(buildEmbeddingInput(bookmark.title, bookmark.body_text));
-      // listUnembeddedProcessed's WHERE clause already excludes user_id IS
-      // NULL rows, so this is always populated here.
-      await semanticIndex.upsert(bookmark.id, bookmark.user_id!, vector);
-      await repository.markEmbedded(bookmark.id);
-      embedded++;
-    } catch (err) {
-      console.error(`[admin/backfill-embeddings] failed for bookmark ${bookmark.id}:`, err);
-      failed++;
-    }
-  }
-
-  return c.json({
-    embedded,
-    failed,
-    processedThisBatch: candidates.length,
-    moreRemaining: candidates.length === BACKFILL_BATCH_SIZE,
-  });
+  const result = await runEmbeddingBackfillBatch(c.get('deps'));
+  return c.json(result);
 });
