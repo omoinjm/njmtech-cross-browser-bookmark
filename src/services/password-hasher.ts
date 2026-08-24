@@ -11,8 +11,13 @@ export interface PasswordHasher {
   verify(password: string, stored: string): Promise<boolean>;
 }
 
-// OWASP's 2023 minimum recommendation for PBKDF2-HMAC-SHA256.
-const PBKDF2_ITERATIONS = 210_000;
+// OWASP's 2023 minimum recommendation for PBKDF2-HMAC-SHA256 is 210,000, but
+// the Workers runtime's crypto.subtle rejects anything above 100,000
+// ("Pbkdf2 failed: iteration counts above 100000 are not supported") — this
+// is the highest value that actually runs here. Each hash self-describes its
+// own iteration count (see hash()/verify() below), so raising this later
+// only affects newly-created hashes, not existing ones.
+const PBKDF2_ITERATIONS = 100_000;
 const SALT_BYTES = 16;
 const KEY_LENGTH_BITS = 256;
 
