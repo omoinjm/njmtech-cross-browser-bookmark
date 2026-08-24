@@ -64,6 +64,26 @@ export class BookmarkIngestionPipeline {
     await this.applyCategorySuggestion(userId, id, bookmark.title ?? '', bookmark.body_text ?? '');
   }
 
+  /**
+   * Backfills a semantic-search embedding for a bookmark that was synced
+   * before it had one — either a pre-existing row re-synced by an import (the
+   * common case: an account claims a backlog of bookmarks via the ownership
+   * migration, then the user imports their browser's bookmark tree and every
+   * one of them is a dedupe hit, not a fresh create) or one whose earlier
+   * embedding attempt failed. Called from bookmarks.ts's dedupe path
+   * alongside categorizeExisting above, instead of waiting on the periodic
+   * cron trigger (see services/embedding-backfill.ts) to eventually catch it.
+   */
+  async embedExisting(userId: number, id: number): Promise<void> {
+    const bookmark = await this.repository.findById(userId, id);
+    // Only a fully-scraped row has the title/body text an embedding needs —
+    // still-pending or failed ones aren't ready yet, same as
+    // listUnembeddedProcessed's WHERE clause.
+    if (!bookmark || bookmark.embedded_at || bookmark.status !== 'processed') return;
+
+    await this.indexForSemanticSearch(userId, id, bookmark.title ?? '', bookmark.body_text ?? '');
+  }
+
   private async applyCategorySuggestion(userId: number, id: number, title: string, bodyText: string): Promise<void> {
     const existingCategories = (await this.repository.listCategories(userId)).map((c) => c.category);
     const suggestion = await this.categoryClassifier.classify(title, bodyText, existingCategories);

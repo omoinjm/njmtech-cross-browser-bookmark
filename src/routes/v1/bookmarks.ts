@@ -68,6 +68,15 @@ bookmarks.post(
       } else if (!existing.category && payload?.suggestCategory) {
         c.executionCtx.waitUntil(pipeline.categorizeExisting(user.id, existing.id));
       }
+
+      // Independent of category state — an import re-syncing an already-
+      // categorized bookmark should still pick up a missing embedding
+      // (e.g. a pre-existing row claimed via the ownership migration),
+      // rather than waiting on the periodic backfill cron to get to it.
+      if (!existing.embedded_at) {
+        c.executionCtx.waitUntil(pipeline.embedExisting(user.id, existing.id));
+      }
+
       return c.json({ id: existing.id, status: existing.status, message: 'Bookmark already exists' }, 200);
     }
 

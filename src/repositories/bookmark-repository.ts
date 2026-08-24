@@ -30,7 +30,7 @@ export interface UpdateBookmarkFields {
  * stopping one user from moving/renaming another user's bookmarks.
  */
 export interface BookmarkRepository {
-  findByUrl(userId: number, url: string): Promise<Pick<BookmarkRow, 'id' | 'status' | 'category'> | null>;
+  findByUrl(userId: number, url: string): Promise<Pick<BookmarkRow, 'id' | 'status' | 'category' | 'embedded_at'> | null>;
   findById(userId: number, id: number): Promise<BookmarkRow | null>;
   create(userId: number, url: string, initialTitle: string | null, category: string | null): Promise<number>;
   list(userId: number, options: ListBookmarksOptions): Promise<BookmarkRow[]>;
@@ -61,11 +61,11 @@ export interface BookmarkRepository {
 export class D1BookmarkRepository implements BookmarkRepository {
   constructor(private readonly db: D1Database) {}
 
-  async findByUrl(userId: number, url: string): Promise<Pick<BookmarkRow, 'id' | 'status' | 'category'> | null> {
+  async findByUrl(userId: number, url: string): Promise<Pick<BookmarkRow, 'id' | 'status' | 'category' | 'embedded_at'> | null> {
     return this.db
-      .prepare('SELECT id, status, category FROM bookmarks WHERE user_id = ? AND url = ?')
+      .prepare('SELECT id, status, category, embedded_at FROM bookmarks WHERE user_id = ? AND url = ?')
       .bind(userId, url)
-      .first<Pick<BookmarkRow, 'id' | 'status' | 'category'>>();
+      .first<Pick<BookmarkRow, 'id' | 'status' | 'category' | 'embedded_at'>>();
   }
 
   async findById(userId: number, id: number): Promise<BookmarkRow | null> {
