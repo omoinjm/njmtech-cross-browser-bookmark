@@ -492,8 +492,7 @@ button.tab-btn:hover {
 }
 
 #login-status,
-#register-status,
-#forgot-password-status {
+#send-access-status {
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--text-muted);
@@ -501,7 +500,7 @@ button.tab-btn:hover {
   margin: 0 0 8px;
 }
 
-#forgot-password-btn {
+#send-access-btn {
   width: auto;
   padding: 4px 0;
   margin-bottom: 4px;
@@ -512,7 +511,7 @@ button.tab-btn:hover {
   border: none;
 }
 
-#forgot-password-btn:hover {
+#send-access-btn:hover {
   color: var(--accent-green);
   background: none;
   box-shadow: none;

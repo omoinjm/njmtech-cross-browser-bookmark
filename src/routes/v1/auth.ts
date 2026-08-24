@@ -27,43 +27,52 @@ const authBodyLimit = bodyLimit({
 });
 
 /**
- * POST /api/v1/auth/register
+ * POST /api/v1/auth/request-password
  * Body: { email }
  *
- * No password is ever chosen by the caller or returned in this response —
- * one is generated server-side and emailed via services/email-sender.ts.
- * Email-first ordering: the email is sent BEFORE the user row is created,
- * so a failed/rate-limited send never leaves behind an account whose only
- * password was lost in transit — the caller just gets an error and can
- * retry, with nothing created.
+ * The one way to get (or regain) access — there is no separate "register" vs
+ * "forgot password" flow, since both boil down to the same thing: nobody
+ * ever chooses a password, so both a new account and an existing one that's
+ * lost its password need the identical action, generate one and email it.
+ * For an existing account this replaces its password outright (and revokes
+ * its other sessions, forcing re-login with the new one) — same as this
+ * project's old dedicated reset-password route, just reached through one
+ * button instead of two.
+ *
+ * Always responds the same way regardless of whether the account already
+ * existed — never lets a caller enumerate registered emails via the
+ * response shape. Email-first ordering: the email is sent BEFORE any D1
+ * write, so a failed/rate-limited send never leaves an account whose only
+ * password was lost in transit — the caller just gets an error and can retry.
  */
-auth.post('/register', authBodyLimit, async (c) => {
+auth.post('/request-password', authBodyLimit, async (c) => {
   const body = await c.req.json<{ email?: string }>().catch(() => null);
   const email = normalizeEmail(body?.email);
   if (!email) {
     return c.json({ error: 'A valid "email" is required' }, 400);
   }
 
-  const { userRepository, passwordHasher, emailSender } = c.get('deps');
-
-  const existing = await userRepository.findByEmail(email);
-  if (existing) {
-    return c.json({ error: 'An account with this email already exists' }, 409);
-  }
+  const { userRepository, passwordHasher, emailSender, sessionRepository } = c.get('deps');
 
   const password = generatePassword();
 
   try {
     await emailSender.sendAccountCredentials(email, password);
   } catch (err) {
-    console.error('[auth/register] failed to send credentials email:', err);
-    return c.json({ error: 'Failed to send the account email — nothing was created, try again' }, 502);
+    console.error('[auth/request-password] failed to send credentials email:', err);
+    return c.json({ error: 'Failed to send the account email — try again' }, 502);
   }
 
   const passwordHash = await passwordHasher.hash(password);
-  await userRepository.createUser(email, passwordHash);
+  const existing = await userRepository.findByEmail(email);
+  if (existing) {
+    await userRepository.updatePasswordHash(existing.id, passwordHash);
+    await sessionRepository.revokeAllSessions(existing.id);
+  } else {
+    await userRepository.createUser(email, passwordHash);
+  }
 
-  return c.json({ message: 'Check your email for your password' }, 201);
+  return c.json({ message: 'Check your email for your password' });
 });
 
 /**
@@ -90,49 +99,6 @@ auth.post('/login', authBodyLimit, async (c) => {
   const session = await sessionRepository.createSession(user.id);
 
   return c.json({ sessionToken: session.token, expiresAt: session.expiresAt, user: { id: user.id, email: user.email } });
-});
-
-/**
- * POST /api/v1/auth/reset-password
- * Body: { email }
- *
- * Always responds with the same message regardless of whether the account
- * exists — never lets a caller use this to enumerate registered emails.
- * When it does exist: generates+emails a new password (same email-first
- * ordering as /register) and revokes every existing session, forcing
- * re-login with the new password.
- */
-auth.post('/reset-password', authBodyLimit, async (c) => {
-  const body = await c.req.json<{ email?: string }>().catch(() => null);
-  const email = normalizeEmail(body?.email);
-  if (!email) {
-    return c.json({ error: 'A valid "email" is required' }, 400);
-  }
-
-  const { userRepository, passwordHasher, emailSender, sessionRepository } = c.get('deps');
-  const genericResponse = { message: 'If that email is registered, a new password has been sent' };
-
-  const user = await userRepository.findByEmail(email);
-  if (!user) {
-    return c.json(genericResponse);
-  }
-
-  const password = generatePassword();
-
-  try {
-    await emailSender.sendAccountCredentials(email, password);
-  } catch (err) {
-    console.error('[auth/reset-password] failed to send credentials email:', err);
-    // Still generic — don't confirm the account exists via a different
-    // error shape than the not-found case above.
-    return c.json({ error: 'Failed to send the reset email — try again' }, 502);
-  }
-
-  const passwordHash = await passwordHasher.hash(password);
-  await userRepository.updatePasswordHash(user.id, passwordHash);
-  await sessionRepository.revokeAllSessions(user.id);
-
-  return c.json(genericResponse);
 });
 
 /**

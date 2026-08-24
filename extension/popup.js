@@ -411,12 +411,11 @@ const loginEmailInput = document.getElementById('login-email');
 const loginPasswordInput = document.getElementById('login-password');
 const loginStatusEl = document.getElementById('login-status');
 
-const registerForm = document.getElementById('register-form');
-const registerEmailInput = document.getElementById('register-email');
-const registerStatusEl = document.getElementById('register-status');
-
-const forgotPasswordBtn = document.getElementById('forgot-password-btn');
-const forgotPasswordStatusEl = document.getElementById('forgot-password-status');
+const sendAccessBtn = document.getElementById('send-access-btn');
+const sendAccessPanel = document.getElementById('send-access-panel');
+const sendAccessForm = document.getElementById('send-access-form');
+const sendAccessEmailInput = document.getElementById('send-access-email');
+const sendAccessStatusEl = document.getElementById('send-access-status');
 
 const logoutBtn = document.getElementById('logout-btn');
 
@@ -441,11 +440,23 @@ function setTabsAuthGate(loggedIn) {
   }
 }
 
+// The "send me a password" panel starts collapsed behind the "Send access
+// token" button every time the logged-out view is (re)shown — logging out,
+// or an expired session bouncing back to it — rather than staying open from
+// whatever state it was left in.
+function resetSendAccessPanel() {
+  sendAccessPanel.hidden = true;
+  sendAccessBtn.hidden = false;
+  sendAccessForm.reset();
+  sendAccessStatusEl.textContent = '';
+}
+
 async function refreshAccountView() {
   const sessionToken = await getSessionToken();
   if (!sessionToken) {
     accountLoggedOutEl.hidden = false;
     accountLoggedInEl.hidden = true;
+    resetSendAccessPanel();
     setTabsAuthGate(false);
     return;
   }
@@ -464,6 +475,7 @@ async function refreshAccountView() {
     await browser.storage.local.remove('sessionToken');
     accountLoggedOutEl.hidden = false;
     accountLoggedInEl.hidden = true;
+    resetSendAccessPanel();
     setTabsAuthGate(false);
   }
 }
@@ -487,34 +499,26 @@ loginForm.addEventListener('submit', async (event) => {
   }
 });
 
-registerForm.addEventListener('submit', async (event) => {
-  event.preventDefault();
-  registerStatusEl.textContent = 'Sending…';
-
-  try {
-    const data = await apiPost('/auth/register', { email: registerEmailInput.value.trim() });
-    registerForm.reset();
-    registerStatusEl.textContent = data.message || 'Check your email for your password';
-  } catch (err) {
-    console.error('[Popup] Registration failed:', err);
-    registerStatusEl.textContent = `Failed: ${err.message}`;
-  }
+// "Send access token" just reveals the same email+button panel a brand-new
+// visitor and someone who's forgotten their password both need — there's no
+// separate register/forgot-password split server-side either (see auth.ts's
+// /request-password), so there's none here.
+sendAccessBtn.addEventListener('click', () => {
+  sendAccessBtn.hidden = true;
+  sendAccessPanel.hidden = false;
 });
 
-forgotPasswordBtn.addEventListener('click', async () => {
-  const email = loginEmailInput.value.trim();
-  if (!email) {
-    forgotPasswordStatusEl.textContent = 'Enter your email above first.';
-    return;
-  }
+sendAccessForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  sendAccessStatusEl.textContent = 'Sending…';
 
-  forgotPasswordStatusEl.textContent = 'Sending…';
   try {
-    const data = await apiPost('/auth/reset-password', { email });
-    forgotPasswordStatusEl.textContent = data.message;
+    const data = await apiPost('/auth/request-password', { email: sendAccessEmailInput.value.trim() });
+    sendAccessForm.reset();
+    sendAccessStatusEl.textContent = data.message || 'Check your email for your password';
   } catch (err) {
-    console.error('[Popup] Password reset failed:', err);
-    forgotPasswordStatusEl.textContent = `Failed: ${err.message}`;
+    console.error('[Popup] Failed to send access token:', err);
+    sendAccessStatusEl.textContent = `Failed: ${err.message}`;
   }
 });
 

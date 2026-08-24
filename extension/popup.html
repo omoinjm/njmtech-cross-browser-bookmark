@@ -75,16 +75,16 @@
           <button type="submit">Log in</button>
         </form>
         <p id="login-status"></p>
-        <button id="forgot-password-btn" type="button">Forgot password?</button>
-        <p id="forgot-password-status"></p>
+        <button id="send-access-btn" type="button">Send access token</button>
 
-        <h2>New here?</h2>
-        <p class="account-hint">No password to choose — we'll email you one.</p>
-        <form id="register-form">
-          <input id="register-email" type="email" placeholder="Email" autocomplete="email" required />
-          <button type="submit">Send me a password</button>
-        </form>
-        <p id="register-status"></p>
+        <div id="send-access-panel" hidden>
+          <p class="account-hint">No password to choose — we'll email you one.</p>
+          <form id="send-access-form">
+            <input id="send-access-email" type="email" placeholder="Email" autocomplete="email" required />
+            <button type="submit">Send me a password</button>
+          </form>
+          <p id="send-access-status"></p>
+        </div>
       </div>
     </section>
 

@@ -99,11 +99,11 @@ test('popup loads cleanly and all three tabs switch correctly', async ({ context
   expect(errors, `console/page errors: ${errors.join('; ')}`).toEqual([]);
 });
 
-test('account tab logs out, registers, and logs back in', async ({ context, extensionId }) => {
+test('account tab logs out, sends an access token, and logs back in', async ({ context, extensionId }) => {
   const page = await context.newPage();
   const errors = collectErrors(page);
 
-  let registeredEmail = null;
+  let requestedPasswordEmail = null;
   const loginAttempts = [];
 
   await page.route('https://example.invalid/api/v1/**', (route) => {
@@ -115,9 +115,9 @@ test('account tab logs out, registers, and logs back in', async ({ context, exte
 
     if (url.includes('/auth/me')) return json(200, { user: { id: 1, email: 'jane@example.com' } });
     if (url.includes('/auth/logout')) return json(200, { ok: true });
-    if (url.includes('/auth/register') && method === 'POST') {
-      registeredEmail = request.postDataJSON().email;
-      return json(201, { message: 'Check your email for your password' });
+    if (url.includes('/auth/request-password') && method === 'POST') {
+      requestedPasswordEmail = request.postDataJSON().email;
+      return json(200, { message: 'Check your email for your password' });
     }
     if (url.includes('/auth/login') && method === 'POST') {
       loginAttempts.push(request.postDataJSON());
@@ -147,10 +147,19 @@ test('account tab logs out, registers, and logs back in', async ({ context, exte
   await expect(page.locator('.tab-btn[data-tab="suggest"]')).toBeHidden();
   await expect(page.locator('.tab-btn[data-tab="search"]')).toBeHidden();
 
-  await page.fill('#register-email', 'jane@example.com');
-  await page.click('#register-form button[type="submit"]');
-  await expect(page.locator('#register-status')).toHaveText('Check your email for your password');
-  expect(registeredEmail).toBe('jane@example.com');
+  // Logged-out landing shows login only — the send-access panel stays
+  // collapsed behind its button until asked for.
+  await expect(page.locator('#login-form')).toBeVisible();
+  await expect(page.locator('#send-access-panel')).toBeHidden();
+
+  await page.click('#send-access-btn');
+  await expect(page.locator('#send-access-panel')).toBeVisible();
+  await expect(page.locator('#send-access-btn')).toBeHidden();
+
+  await page.fill('#send-access-email', 'jane@example.com');
+  await page.click('#send-access-form button[type="submit"]');
+  await expect(page.locator('#send-access-status')).toHaveText('Check your email for your password');
+  expect(requestedPasswordEmail).toBe('jane@example.com');
 
   await page.fill('#login-email', 'jane@example.com');
   await page.fill('#login-password', 'generated-password');
