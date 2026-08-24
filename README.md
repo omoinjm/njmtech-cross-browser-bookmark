@@ -1,8 +1,19 @@
-# Azi
+<p align="center">
+  <img src="extension/icons/icon128.png" alt="Azi logo" width="112" />
+</p>
+
+# [Azi](https://bookmark.njmtech.co.za)
+
+[![Deploy](https://github.com/omoinjm/njmtech-cross-browser-bookmark/actions/workflows/deploy.yml/badge.svg)](https://github.com/omoinjm/njmtech-cross-browser-bookmark/actions/workflows/deploy.yml)
+[![Release extension](https://github.com/omoinjm/njmtech-cross-browser-bookmark/actions/workflows/release-extension.yml/badge.svg)](https://github.com/omoinjm/njmtech-cross-browser-bookmark/actions/workflows/release-extension.yml)
+[![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](package.json)
+[![Extension](https://img.shields.io/badge/extension-MV3-blue.svg)](extension/manifest.json)
+
+**The browser extension that remembers so you don't have to.**
+
+A personal, cross-browser bookmark library — a lightweight MV3 browser extension forwards every new bookmark to a Cloudflare Worker, which scrapes the page, generates tags with Workers AI, and indexes everything for full-text search — all asynchronously, so the browser never waits on it.
 
 > Repo/package name: `bookmark-sync-engine`
-
-The browser extension that remembers so you don't have to. A personal, cross-browser bookmark library — a lightweight MV3 browser extension forwards every new bookmark to a Cloudflare Worker, which scrapes the page, generates tags with Workers AI, and indexes everything for full-text search — all asynchronously, so the browser never waits on it.
 
 ## Architecture
 
