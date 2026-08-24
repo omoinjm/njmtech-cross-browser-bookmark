@@ -1,6 +1,8 @@
-# bookmark-sync-engine
+# Azi
 
-A personal, cross-browser bookmark sync engine. A lightweight MV3 browser extension forwards every new bookmark to a Cloudflare Worker, which scrapes the page, generates tags with Workers AI, and indexes everything for full-text search — all asynchronously, so the browser never waits on it.
+> Repo/package name: `bookmark-sync-engine`
+
+The browser extension that remembers so you don't have to. A personal, cross-browser bookmark library — a lightweight MV3 browser extension forwards every new bookmark to a Cloudflare Worker, which scrapes the page, generates tags with Workers AI, and indexes everything for full-text search — all asynchronously, so the browser never waits on it.
 
 ## Architecture
 

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Bookmark Sync Engine",
-  "version": "1.0.0",
-  "description": "Automatically syncs new browser bookmarks to a personal Cloudflare-powered search & auto-tagging engine.",
+  "name": "Azi",
+  "version": "1.0.2",
+  "description": "The browser extension that remembers so you don't have to. Syncs bookmarks to a personal Cloudflare-powered library with AI tagging and search.",
   "permissions": [
     "bookmarks",
     "tabs",
@@ -40,7 +40,7 @@
   },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Bookmark Sync Engine",
+    "default_title": "Azi",
     "default_icon": {
       "16": "icons/icon16.png",
       "32": "icons/icon32.png",
@@ -51,7 +51,19 @@
   "browser_specific_settings": {
     "gecko": {
       "id": "bookmark-sync@njmtech.co.za",
-      "strict_min_version": "109.0"
+      "strict_min_version": "140.0",
+      "data_collection_permissions": {
+        "required": [
+          "authenticationInfo",
+          "bookmarksInfo",
+          "searchTerms",
+          "websiteActivity",
+          "websiteContent"
+        ]
+      }
+    },
+    "gecko_android": {
+      "strict_min_version": "142.0"
     }
   }
 }

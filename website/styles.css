@@ -133,6 +133,13 @@ main {
 
 .tagline {
   max-width: 640px;
+  margin: 0 auto 12px;
+  color: var(--text-primary);
+  font-size: 18px;
+}
+
+.lede {
+  max-width: 640px;
   margin: 0 auto 32px;
   color: var(--text-secondary);
   font-size: 16px;

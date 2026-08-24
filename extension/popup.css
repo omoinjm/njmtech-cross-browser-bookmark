@@ -16,7 +16,14 @@ h1 {
   font-size: 14px;
   letter-spacing: 0.02em;
   color: var(--accent-green);
+  margin: 0 0 4px;
+}
+
+.tagline {
   margin: 0 0 10px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--text-secondary);
 }
 
 h1::before {
