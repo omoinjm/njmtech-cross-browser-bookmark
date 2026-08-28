@@ -59,6 +59,11 @@ jobs:
 
       - run: npm run lint:firefox
       - run: npm run package:firefox
+      # Built unconditionally (not just when Edge secrets are set) so the
+      # Chromium-flavored zip is always available on the GitHub Release for
+      # manual Opera/Chrome/Edge sideloading, even before Edge automation
+      # is configured.
+      - run: npm run package:edge
 
       - name: Submit to AMO for signing/review
         if: ${{ env.WEB_EXT_API_KEY != '' && env.WEB_EXT_API_SECRET != '' }}
@@ -68,7 +73,7 @@ jobs:
       - name: Submit to Microsoft Edge Add-ons
         if: ${{ env.EDGE_CLIENT_ID != '' && env.EDGE_API_KEY != '' && env.EDGE_PRODUCT_ID != '' }}
         continue-on-error: true
-        run: npm run publish:edge
+        run: node scripts/publish-edge.js
 
       - name: Resolve release version
         id: meta
@@ -79,28 +84,40 @@ jobs:
             echo "version=$(node -p "require('./extension/manifest.json').version")" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Locate packaged zip
+      - name: Locate packaged zip(s)
         id: zip
         run: |
-          ZIP=$(ls web-ext-artifacts/azi-*.zip)
-          echo "path=${ZIP}" >> "$GITHUB_OUTPUT"
-          echo "Packaged: ${ZIP}"
+          VERSION="${{ steps.meta.outputs.version }}"
+          FILES="web-ext-artifacts/azi-${VERSION}.zip"
+          if [ -f "web-ext-artifacts/azi-${VERSION}-edge.zip" ]; then
+            FILES="${FILES}
+          web-ext-artifacts/azi-${VERSION}-edge.zip"
+          fi
+          echo "Packaged:"
+          echo "$FILES"
+          {
+            echo "paths<<ZIP_EOF"
+            echo "$FILES"
+            echo "ZIP_EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', steps.meta.outputs.version) }}
           name: Azi v${{ steps.meta.outputs.version }}
-          files: ${{ steps.zip.outputs.path }}
+          files: ${{ steps.zip.outputs.paths }}
           generate_release_notes: true
           body: |
             ## Azi browser extension v${{ steps.meta.outputs.version }}
 
-            Download **`azi-${{ steps.meta.outputs.version }}.zip`** below and install:
+            Two zips below — they're **not interchangeable** (Chromium's package validator rejects a couple of things Firefox's manifest needs):
 
-            - **Firefox:** submitted to AMO automatically for review, or load this zip temporarily via `about:debugging` → *Load Temporary Add-on*
-            - **Microsoft Edge:** submitted to Edge Add-ons automatically for review (once the listing exists), or unzip and use *Load unpacked* in `edge://extensions` (Developer mode)
-            - **Opera:** upload this zip manually at [addons.opera.com/developer](https://addons.opera.com/developer/) — no public submission API exists for Opera
-            - **Chrome:** unzip and use *Load unpacked* in `chrome://extensions` (Developer mode) — not yet published to the Chrome Web Store
+            - **`azi-${{ steps.meta.outputs.version }}.zip`** — Firefox build.
+              - Submitted to AMO automatically for review, or load it temporarily via `about:debugging` → *Load Temporary Add-on*.
+            - **`azi-${{ steps.meta.outputs.version }}-edge.zip`** — Chromium build (Edge, Opera, Chrome).
+              - **Microsoft Edge:** submitted to Edge Add-ons automatically for review (once the listing exists), or unzip and use *Load unpacked* in `edge://extensions` (Developer mode).
+              - **Opera:** upload this zip manually at [addons.opera.com/developer](https://addons.opera.com/developer/) — no public submission API exists for Opera.
+              - **Chrome:** unzip and use *Load unpacked* in `chrome://extensions` (Developer mode) — not yet published to the Chrome Web Store.
 
             After installing, open the extension popup → **Account** tab to log in or request access.
 

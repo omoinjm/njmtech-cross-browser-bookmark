@@ -143,9 +143,10 @@ flowchart TB
 
   subgraph ciRelease [release-extension.yml]
     extLint["web-ext lint"]
-    extPack["package:firefox"]
-    ghRelease["GitHub Release\nazi-version.zip"]
-    edgeSubmit["publish:edge\n(web-ext-artifacts zip)"]
+    extPack["package:firefox\n(azi-version.zip)"]
+    edgePack["package:edge\n(azi-version-edge.zip,\nrewritten manifest)"]
+    ghRelease["GitHub Release\n(both zips)"]
+    edgeSubmit["publish:edge\n(web-ext-artifacts edge zip)"]
     amoSubmit["publish:firefox\n(web-ext sign)"]
   end
 
@@ -163,10 +164,12 @@ flowchart TB
 
   extCode --> extLint
   extLint --> extPack
+  extLint --> edgePack
   extPack --> ghRelease
+  edgePack --> ghRelease
   extPack --> amoSubmit --> amo
-  extPack --> edgeSubmit --> edge
-  extPack -.->|"manual"| opera
+  edgePack --> edgeSubmit --> edge
+  edgePack -.->|"manual"| opera
 
   srcCode --> build
   srcCode --> typecheck
@@ -192,15 +195,21 @@ flowchart TB
 
 Any of the store secrets missing just skips that store's submission step — the GitHub Release step always runs regardless.
 
-### Packaging for Firefox (and other Chromium/Gecko stores)
+### Packaging: two different zips, not one
 
-Build the upload zip locally from the repo root — this is a plain WebExtension package, not Firefox-specific, so the same file is what you'd hand-upload to Opera too:
+There are **two** build flavors, and they are not interchangeable — Chromium's package validator (used by both Edge Add-ons and, since Opera is also Chromium-based, almost certainly Opera Add-ons too) rejects two things the Firefox-oriented manifest has:
+
+- `background.scripts` present alongside `background.service_worker` under `manifest_version: 3` (Firefox needs `scripts`; Chrome/Edge only ever read `service_worker` and `background.js` picks its own bootstrap path via `typeof importScripts`, so `scripts` is dead weight there)
+- a `description` over 132 characters (Firefox/AMO has no such limit)
 
 ```sh
-npm run package:firefox
+npm run package:firefox   # web-ext-artifacts/azi-<version>.zip        — Firefox/AMO
+npm run package:edge      # web-ext-artifacts/azi-<version>-edge.zip   — Edge, Opera, Chrome
 ```
 
-Output: `web-ext-artifacts/azi-<version>.zip` (version from `extension/manifest.json`).
+`package:edge` runs `scripts/build-edge-package.js` first, which copies `extension/` into a gitignored `.edge-build/`, strips `background.scripts` and `browser_specific_settings`, and swaps in a ≤132-character description — then packages *that*. **Use the `-edge.zip` build for Opera's manual upload too**, not the plain one — the plain Firefox zip will fail Opera's validator with the same errors Edge gives.
+
+Both packaging scripts always overwrite `extension/config.js` from `extension/config.example.js` before building, regardless of whatever `config.js` already exists locally — a distributable package must never be able to ship a developer's local override or stale secret.
 
 ### GitHub Releases, and auto-submission to Firefox/Edge
 
@@ -221,9 +230,9 @@ If the secrets above are configured, the same workflow also:
 
 Both submission steps are `continue-on-error: true`, so a store review delay/timeout never blocks the GitHub Release.
 
-**Opera Add-ons** has no public submission API (confirmed against Opera's own developer docs — their "Add-ons API" is a client-side `installExtension()` call, unrelated to publishing), so every Opera release — first and subsequent — means uploading `web-ext-artifacts/azi-<version>.zip` by hand at [addons.opera.com/developer](https://addons.opera.com/developer/).
+**Opera Add-ons** has no public submission API (confirmed against Opera's own developer docs — their "Add-ons API" is a client-side `installExtension()` call, unrelated to publishing), so every Opera release — first and subsequent — means uploading `web-ext-artifacts/azi-<version>-edge.zip` (the Chromium-flavored build, not the plain Firefox one) by hand at [addons.opera.com/developer](https://addons.opera.com/developer/).
 
-**Chrome Web Store** isn't wired up at all yet (pending the one-time $5 developer registration fee) — for now, Chrome users load the same zip unpacked via `chrome://extensions` → Developer mode → Load unpacked.
+**Chrome Web Store** isn't wired up at all yet (pending the one-time $5 developer registration fee) — for now, Chrome users load the `-edge.zip` build unpacked via `chrome://extensions` → Developer mode → Load unpacked.
 
 ## Local development
 

@@ -27,9 +27,13 @@ function requireEnv(name) {
 
 function findPackage() {
   const dir = path.join(process.cwd(), 'web-ext-artifacts');
-  const zip = fs.existsSync(dir) && fs.readdirSync(dir).find((f) => /^azi-.*\.zip$/.test(f));
+  // Specifically the "-edge" suffixed build (see scripts/build-edge-package.js)
+  // — Edge's package validator rejects the plain Firefox zip (background.scripts
+  // alongside service_worker, and a too-long description), so the two must
+  // never be confused with each other even though both can exist side by side.
+  const zip = fs.existsSync(dir) && fs.readdirSync(dir).find((f) => /^azi-.*-edge\.zip$/.test(f));
   if (!zip) {
-    console.error(`No azi-*.zip found in ${dir} — run "npm run package:firefox" first.`);
+    console.error(`No azi-*-edge.zip found in ${dir} — run "npm run package:edge" first.`);
     process.exit(1);
   }
   return path.join(dir, zip);
