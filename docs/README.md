@@ -145,6 +145,8 @@ flowchart TB
     extLint["web-ext lint"]
     extPack["package:firefox"]
     ghRelease["GitHub Release\nazi-version.zip"]
+    edgeSubmit["publish:edge\n(web-ext-artifacts zip)"]
+    amoSubmit["publish:firefox\n(web-ext sign)"]
   end
 
   subgraph ciPages [deploy-pages.yml]
@@ -154,12 +156,17 @@ flowchart TB
   subgraph prod [Production]
     workerProd["Worker\napi.bookmark.njmtech.co.za"]
     pagesProd["Site\nbookmark.njmtech.co.za"]
-    amo["Firefox AMO\nmanual upload"]
+    amo["Firefox AMO\nauto-submitted for review"]
+    edge["Microsoft Edge Add-ons\nauto-submitted for review\n(after first listing exists)"]
+    opera["Opera Add-ons\nmanual upload — no public API"]
   end
 
   extCode --> extLint
   extLint --> extPack
   extPack --> ghRelease
+  extPack --> amoSubmit --> amo
+  extPack --> edgeSubmit --> edge
+  extPack -.->|"manual"| opera
 
   srcCode --> build
   srcCode --> typecheck
@@ -171,8 +178,6 @@ flowchart TB
 
   webCode --> pagesDeploy
   pagesDeploy --> pagesProd
-
-  extCode --> amo
 ```
 
 ### Secrets and config
@@ -180,12 +185,16 @@ flowchart TB
 | Where | What |
 |---|---|
 | **Cloudflare** | `API_TOKEN` via `wrangler secret put`; D1, AI, Browser Rendering, Vectorize bindings in `wrangler.toml` |
-| **GitHub Actions** | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` for Worker deploy |
+| **GitHub Actions (Worker)** | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` for Worker deploy |
+| **GitHub Actions (Firefox)** | `AMO_JWT_ISSUER`, `AMO_JWT_SECRET` — API key/secret from [addons.mozilla.org/developers/addon/api/key](https://addons.mozilla.org/developers/addon/api/key/) |
+| **GitHub Actions (Edge)** | `EDGE_CLIENT_ID`, `EDGE_API_KEY` from Partner Center → Microsoft Edge → **Publish API** → Create API credentials; `EDGE_PRODUCT_ID` from the extension's page in Partner Center |
 | **Extension (local / zip)** | Copy `extension/config.example.js` → `extension/config.js`; login via popup Account tab |
 
-### Packaging for Firefox
+Any of the store secrets missing just skips that store's submission step — the GitHub Release step always runs regardless.
 
-Build an AMO upload zip locally from the repo root:
+### Packaging for Firefox (and other Chromium/Gecko stores)
+
+Build the upload zip locally from the repo root — this is a plain WebExtension package, not Firefox-specific, so the same file is what you'd hand-upload to Opera too:
 
 ```sh
 npm run package:firefox
@@ -193,9 +202,9 @@ npm run package:firefox
 
 Output: `web-ext-artifacts/azi-<version>.zip` (version from `extension/manifest.json`).
 
-### GitHub Releases
+### GitHub Releases, and auto-submission to Firefox/Edge
 
-The [`release-extension.yml`](../.github/workflows/release-extension.yml) workflow publishes the same zip to **GitHub Releases** when you push a version tag:
+The [`release-extension.yml`](../.github/workflows/release-extension.yml) workflow lints, packages, and publishes the zip to **GitHub Releases** when you push a version tag:
 
 ```sh
 # 1. Bump "version" in extension/manifest.json first
@@ -204,6 +213,17 @@ git push origin v1.0.2
 ```
 
 The tag (`v1.0.2`) must match the manifest version (`1.0.2`). You can also run the workflow manually from the Actions tab; it uses the manifest version and creates the tag if needed.
+
+If the secrets above are configured, the same workflow also:
+
+- **Submits to Firefox AMO** for signing/review via `npm run publish:firefox` (`web-ext sign --channel=listed`).
+- **Submits to Microsoft Edge Add-ons** for review via `npm run publish:edge` (`scripts/publish-edge.js`, calling the [Edge Add-ons Update REST API](https://learn.microsoft.com/en-us/microsoft-edge/extensions/update/api/using-addons-api) directly: upload the draft package, poll until processed, publish the draft, poll until that clears too). This API can only update an **existing** Edge listing — the very first submission for a new extension still has to be done by hand in Partner Center before this takes over.
+
+Both submission steps are `continue-on-error: true`, so a store review delay/timeout never blocks the GitHub Release.
+
+**Opera Add-ons** has no public submission API (confirmed against Opera's own developer docs — their "Add-ons API" is a client-side `installExtension()` call, unrelated to publishing), so every Opera release — first and subsequent — means uploading `web-ext-artifacts/azi-<version>.zip` by hand at [addons.opera.com/developer](https://addons.opera.com/developer/).
+
+**Chrome Web Store** isn't wired up at all yet (pending the one-time $5 developer registration fee) — for now, Chrome users load the same zip unpacked via `chrome://extensions` → Developer mode → Load unpacked.
 
 ## Local development
 

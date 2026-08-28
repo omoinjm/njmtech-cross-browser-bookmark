@@ -9,8 +9,17 @@ name: Release extension
 # AMO submission requires two repository secrets under Settings → Secrets
 # and variables → Actions: AMO_JWT_ISSUER and AMO_JWT_SECRET (an API
 # key/secret pair from https://addons.mozilla.org/developers/addon/api/key/).
-# If they're not set, that step is skipped and only the GitHub Release is
-# published.
+#
+# Microsoft Edge Add-ons submission requires three more: EDGE_CLIENT_ID,
+# EDGE_API_KEY (both from Partner Center → Microsoft Edge → Publish API →
+# Create API credentials) and EDGE_PRODUCT_ID (from the extension's page in
+# Partner Center). The Edge API can only update an EXISTING listing, so the
+# first submission must be done by hand in Partner Center before this can
+# take over for subsequent versions.
+#
+# Any of these secrets missing just skips that store's step — the GitHub
+# Release always publishes regardless. Opera Add-ons has no public
+# submission API, so it stays a manual upload — see the README.
 on:
   push:
     tags:
@@ -26,6 +35,9 @@ jobs:
     env:
       WEB_EXT_API_KEY: ${{ secrets.AMO_JWT_ISSUER }}
       WEB_EXT_API_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+      EDGE_CLIENT_ID: ${{ secrets.EDGE_CLIENT_ID }}
+      EDGE_API_KEY: ${{ secrets.EDGE_API_KEY }}
+      EDGE_PRODUCT_ID: ${{ secrets.EDGE_PRODUCT_ID }}
     steps:
       - uses: actions/checkout@v4
 
@@ -52,6 +64,11 @@ jobs:
         if: ${{ env.WEB_EXT_API_KEY != '' && env.WEB_EXT_API_SECRET != '' }}
         continue-on-error: true
         run: npm run publish:firefox
+
+      - name: Submit to Microsoft Edge Add-ons
+        if: ${{ env.EDGE_CLIENT_ID != '' && env.EDGE_API_KEY != '' && env.EDGE_PRODUCT_ID != '' }}
+        continue-on-error: true
+        run: npm run publish:edge
 
       - name: Resolve release version
         id: meta
@@ -81,7 +98,9 @@ jobs:
             Download **`azi-${{ steps.meta.outputs.version }}.zip`** below and install:
 
             - **Firefox:** submitted to AMO automatically for review, or load this zip temporarily via `about:debugging` → *Load Temporary Add-on*
-            - **Chrome / Edge:** unzip and use *Load unpacked* in `chrome://extensions` (Developer mode), or sideload the zip if your browser supports it
+            - **Microsoft Edge:** submitted to Edge Add-ons automatically for review (once the listing exists), or unzip and use *Load unpacked* in `edge://extensions` (Developer mode)
+            - **Opera:** upload this zip manually at [addons.opera.com/developer](https://addons.opera.com/developer/) — no public submission API exists for Opera
+            - **Chrome:** unzip and use *Load unpacked* in `chrome://extensions` (Developer mode) — not yet published to the Chrome Web Store
 
             After installing, open the extension popup → **Account** tab to log in or request access.
 
