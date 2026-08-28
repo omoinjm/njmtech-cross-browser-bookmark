@@ -139,6 +139,21 @@ If a deploy reports `Authentication error [code: 10000]` specifically on a `/zon
 npm run db:init:remote
 ```
 
+### Releasing the extension
+
+Bump `version` in `extension/manifest.json`, then push a matching tag:
+
+```sh
+git tag v<version> && git push origin v<version>
+```
+
+This triggers [`.github/workflows/release-extension.yml`](.github/workflows/release-extension.yml), which lints, packages, and:
+
+- **Attaches the zip to a GitHub Release** — always runs, no secrets required.
+- **Submits the same build to AMO** for Firefox signing/review (`web-ext sign --channel=listed`) — only runs if `AMO_JWT_ISSUER` and `AMO_JWT_SECRET` are set as repository secrets (**Settings → Secrets and variables → Actions**). Get a key/secret pair at [addons.mozilla.org/developers/addon/api/key/](https://addons.mozilla.org/developers/addon/api/key/) (requires an existing AMO developer account with this add-on already listed). This step is `continue-on-error`, so an AMO review delay/timeout never blocks the GitHub Release.
+
+Chrome/Edge updates go through the [Chrome Web Store Developer Dashboard](https://chrome.google.com/webstore/devconsole) manually — there's no equivalent automated submission wired up for that store.
+
 ## Security
 
 - **Authentication**: every route except `/api/v1/health` requires `Authorization: Bearer <API_TOKEN>` (`hono/bearer-auth`, constant-time comparison). The token lives only in the Cloudflare secret store — never in `wrangler.toml` or source:

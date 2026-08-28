@@ -11,7 +11,8 @@
     "db:init:remote": "wrangler d1 execute bookmarks-db --remote --file=./schema.sql",
     "test:extension": "playwright test",
     "lint:firefox": "[ -f extension/config.js ] || cp extension/config.example.js extension/config.js; web-ext lint --source-dir=extension",
-    "package:firefox": "[ -f extension/config.js ] || cp extension/config.example.js extension/config.js; web-ext build --source-dir=extension --artifacts-dir=web-ext-artifacts --ignore-files config.example.js --overwrite-dest"
+    "package:firefox": "[ -f extension/config.js ] || cp extension/config.example.js extension/config.js; web-ext build --source-dir=extension --artifacts-dir=web-ext-artifacts --ignore-files config.example.js --overwrite-dest",
+    "publish:firefox": "[ -f extension/config.js ] || cp extension/config.example.js extension/config.js; web-ext sign --source-dir=extension --artifacts-dir=web-ext-artifacts --ignore-files config.example.js --channel=listed"
   },
   "dependencies": {
     "@cloudflare/puppeteer": "^0.0.14",

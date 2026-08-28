@@ -1,9 +1,16 @@
 name: Release extension
 
-# Publishes a packaged extension zip to GitHub Releases.
+# Publishes a packaged extension zip to GitHub Releases, and submits the
+# same build to addons.mozilla.org (AMO) for signing/review.
 # Push a tag that matches extension/manifest.json, e.g.:
 #   git tag v1.0.2 && git push origin v1.0.2
 # Or run manually from the Actions tab (uses manifest version as the tag).
+#
+# AMO submission requires two repository secrets under Settings → Secrets
+# and variables → Actions: AMO_JWT_ISSUER and AMO_JWT_SECRET (an API
+# key/secret pair from https://addons.mozilla.org/developers/addon/api/key/).
+# If they're not set, that step is skipped and only the GitHub Release is
+# published.
 on:
   push:
     tags:
@@ -38,6 +45,14 @@ jobs:
       - run: npm run lint:firefox
       - run: npm run package:firefox
 
+      - name: Submit to AMO for signing/review
+        if: ${{ secrets.AMO_JWT_ISSUER != '' && secrets.AMO_JWT_SECRET != '' }}
+        continue-on-error: true
+        env:
+          WEB_EXT_API_KEY: ${{ secrets.AMO_JWT_ISSUER }}
+          WEB_EXT_API_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: npm run publish:firefox
+
       - name: Resolve release version
         id: meta
         run: |
@@ -65,7 +80,7 @@ jobs:
 
             Download **`azi-${{ steps.meta.outputs.version }}.zip`** below and install:
 
-            - **Firefox:** upload to AMO, or load temporarily via `about:debugging` → *Load Temporary Add-on*
+            - **Firefox:** submitted to AMO automatically for review, or load this zip temporarily via `about:debugging` → *Load Temporary Add-on*
             - **Chrome / Edge:** unzip and use *Load unpacked* in `chrome://extensions` (Developer mode), or sideload the zip if your browser supports it
 
             After installing, open the extension popup → **Account** tab to log in or request access.
