@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="extension/icons/icon128.png" alt="Azi logo" width="112" />
+  <img src="apps/extension/extension/icons/icon128.png" alt="Azi logo" width="112" />
 </p>
 
 # [Azi](https://bookmark.njmtech.co.za)
@@ -7,7 +7,7 @@
 [![Deploy](https://github.com/omoinjm/njmtech-cross-browser-bookmark/actions/workflows/deploy.yml/badge.svg)](https://github.com/omoinjm/njmtech-cross-browser-bookmark/actions/workflows/deploy.yml)
 [![Release extension](https://github.com/omoinjm/njmtech-cross-browser-bookmark/actions/workflows/release-extension.yml/badge.svg)](https://github.com/omoinjm/njmtech-cross-browser-bookmark/actions/workflows/release-extension.yml)
 [![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](package.json)
-[![Extension](https://img.shields.io/badge/extension-MV3-blue.svg)](extension/manifest.json)
+[![Extension](https://img.shields.io/badge/extension-MV3-blue.svg)](apps/extension/extension/manifest.json)
 [![Firefox Add-on](https://img.shields.io/badge/Firefox-Get%20the%20add--on-orange.svg)](https://addons.mozilla.org/addon/azi/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -56,8 +56,8 @@ See [How to use it](#how-to-use-it) for the full walkthrough.
 npm install
 npm run dev       # wrangler dev — local Worker
 npm run build     # wrangler deploy --dry-run — verifies the bundle builds, doesn't publish
-npm run typecheck # tsc --noEmit
-npm run db:init   # apply schema.sql to the local D1 database
+npm run typecheck # tsc -p apps/worker/tsconfig.json
+npm run db:init   # apply apps/worker/schema.sql to the local D1 database
 ```
 
 CI (`.github/workflows/deploy.yml`) runs `build`, `typecheck`, and the [browser tests](#browser-tests) as independent parallel jobs on every push to `main`; the Worker only deploys once all three pass.
@@ -68,18 +68,18 @@ CI (`.github/workflows/deploy.yml`) runs `build`, `typecheck`, and the [browser 
 
 **From source** (for development, or Chrome/Edge — not on a store yet):
 
-1. `cp extension/config.example.js extension/config.js` — it already points at the production Worker; edit `WORKER_API_URL` inside only if you're running the Worker locally instead.
-2. **Chrome/Edge:** go to `chrome://extensions`, enable **Developer mode**, click **Load unpacked** → select the `extension/` folder. **Firefox:** `about:debugging` → **This Firefox** → **Load Temporary Add-on** → select `extension/manifest.json` (Firefox drops temporary add-ons on restart, so reload it each session).
+1. `cp apps/extension/extension/config.example.js apps/extension/extension/config.js` — it already points at the production Worker; edit `WORKER_API_URL` inside only if you're running the Worker locally instead.
+2. **Chrome/Edge:** go to `chrome://extensions`, enable **Developer mode**, click **Load unpacked** → select the `apps/extension/extension/` folder. **Firefox:** `about:debugging` → **This Firefox** → **Load Temporary Add-on** → select `apps/extension/extension/manifest.json` (Firefox drops temporary add-ons on restart, so reload it each session).
 3. Open the popup and get access from the **Account** tab — see [How to use it](#how-to-use-it).
 
 ## Browser tests
 
 Two checks cover Chrome/Edge and Firefox, both run in CI on every push and runnable locally:
 
-- **`npm run test:extension`** (`tests/extension.spec.js`, Playwright) drives the *real* unpacked extension loaded into a persistent Chromium context. Checks: the popup loads with no console/page errors and all tabs switch correctly, the Library page loads cleanly, and the manifest still declares both the Chromium (`background.service_worker`) and Firefox (`background.scripts` + `browser_specific_settings.gecko`) background entry points. The Worker API is mocked (`page.route`), so this never hits a real backend. Edge isn't driven separately — it shares Chromium's engine, so a passing Chromium run stands in for it too.
+- **`npm run test:extension`** (`apps/extension/tests/extension.spec.js`, Playwright) drives the *real* unpacked extension loaded into a persistent Chromium context. Checks: the popup loads with no console/page errors and all tabs switch correctly, the Library page loads cleanly, and the manifest still declares both the Chromium (`background.service_worker`) and Firefox (`background.scripts` + `browser_specific_settings.gecko`) background entry points. The Worker API is mocked (`page.route`), so this never hits a real backend. Edge isn't driven separately — it shares Chromium's engine, so a passing Chromium run stands in for it too.
 - **`npm run lint:firefox`** (`web-ext lint`) runs Mozilla's own linter against `manifest.json` and the extension's code for real Firefox/WebExtension incompatibilities — used instead of live Firefox browser automation, which has no simple unpacked-extension-loading equivalent to Chromium's `--load-extension` flag.
 
-Neither script touches your real `extension/config.js` (gitignored, may not even exist on a fresh checkout): `web-ext lint` only reads `manifest.json`/code, and `tests/fixtures.js` copies `extension/` into a throwaway temp directory with a stub `config.js` before loading it.
+Neither script touches your real `apps/extension/extension/config.js` (gitignored, may not even exist on a fresh checkout): `web-ext lint` only reads `manifest.json`/code, and `apps/extension/tests/fixtures.js` copies `apps/extension/extension/` into a throwaway temp directory with a stub `config.js` before loading it.
 
 ## Contributing
 

@@ -6,7 +6,7 @@ name: Deploy Pages
 on:
   push:
     branches: [main]
-    paths: ['website/**']
+    paths: ['apps/website/**']
   workflow_dispatch: {}
 
 permissions:
@@ -29,6 +29,6 @@ jobs:
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: website
+          path: apps/website
       - id: deployment
         uses: actions/deploy-pages@v4

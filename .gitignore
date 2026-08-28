@@ -6,7 +6,7 @@ dist/
 !.env.example
 *.log
 .DS_Store
-extension/config.js
+apps/extension/extension/config.js
 web-ext-artifacts/
 .edge-build/
 test-results/

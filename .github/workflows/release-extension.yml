@@ -2,7 +2,7 @@ name: Release extension
 
 # Publishes a packaged extension zip to GitHub Releases, and submits the
 # same build to addons.mozilla.org (AMO) for signing/review.
-# Push a tag that matches extension/manifest.json, e.g.:
+# Push a tag that matches apps/extension/extension/manifest.json, e.g.:
 #   git tag v1.0.2 && git push origin v1.0.2
 # Or run manually from the Actions tab (uses manifest version as the tag).
 #
@@ -51,9 +51,9 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         run: |
           TAG="${GITHUB_REF#refs/tags/v}"
-          VERSION=$(node -p "require('./extension/manifest.json').version")
+          VERSION=$(node -p "require('./apps/extension/extension/manifest.json').version")
           if [ "$TAG" != "$VERSION" ]; then
-            echo "Tag v${TAG} does not match extension/manifest.json version ${VERSION}"
+            echo "Tag v${TAG} does not match apps/extension/extension/manifest.json version ${VERSION}"
             exit 1
           fi
 
@@ -73,7 +73,7 @@ jobs:
       - name: Submit to Microsoft Edge Add-ons
         if: ${{ env.EDGE_CLIENT_ID != '' && env.EDGE_API_KEY != '' && env.EDGE_PRODUCT_ID != '' }}
         continue-on-error: true
-        run: node scripts/publish-edge.js
+        run: node apps/extension/scripts/publish-edge.js
 
       - name: Resolve release version
         id: meta
@@ -81,7 +81,7 @@ jobs:
           if [ "${{ github.ref_type }}" = "tag" ]; then
             echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
           else
-            echo "version=$(node -p "require('./extension/manifest.json').version")" >> "$GITHUB_OUTPUT"
+            echo "version=$(node -p "require('./apps/extension/extension/manifest.json').version")" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Locate packaged zip(s)
