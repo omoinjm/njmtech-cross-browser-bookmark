@@ -146,7 +146,7 @@ flowchart TB
     extPack["package:firefox\n(azi-version.zip)"]
     edgePack["package:edge\n(azi-version-edge.zip,\nrewritten manifest)"]
     ghRelease["GitHub Release\n(both zips)"]
-    edgeSubmit["publish:edge\n(web-ext-artifacts edge zip)"]
+    edgeSubmit["publish:edge\n(apps/extension/web-ext-artifacts edge zip)"]
     amoSubmit["publish:firefox\n(web-ext sign)"]
   end
 
@@ -203,8 +203,8 @@ There are **two** build flavors, and they are not interchangeable — Chromium's
 - a `description` over 132 characters (Firefox/AMO has no such limit)
 
 ```sh
-npm run package:firefox   # web-ext-artifacts/azi-<version>.zip        — Firefox/AMO
-npm run package:edge      # web-ext-artifacts/azi-<version>-edge.zip   — Edge, Opera, Chrome
+npm run package:firefox   # apps/extension/web-ext-artifacts/azi-<version>.zip        — Firefox/AMO
+npm run package:edge      # apps/extension/web-ext-artifacts/azi-<version>-edge.zip   — Edge, Opera, Chrome
 ```
 
 `package:edge` runs `apps/extension/scripts/build-edge-package.js` first, which copies `apps/extension/extension/` into a gitignored `apps/extension/.edge-build/`, strips `background.scripts` and `browser_specific_settings`, and swaps in a ≤132-character description — then packages *that*. **Use the `-edge.zip` build for Opera's manual upload too**, not the plain one — the plain Firefox zip will fail Opera's validator with the same errors Edge gives.
@@ -230,7 +230,7 @@ If the secrets above are configured, the same workflow also:
 
 Both submission steps are `continue-on-error: true`, so a store review delay/timeout never blocks the GitHub Release.
 
-**Opera Add-ons** has no public submission API (confirmed against Opera's own developer docs — their "Add-ons API" is a client-side `installExtension()` call, unrelated to publishing), so every Opera release — first and subsequent — means uploading `web-ext-artifacts/azi-<version>-edge.zip` (the Chromium-flavored build, not the plain Firefox one) by hand at [addons.opera.com/developer](https://addons.opera.com/developer/).
+**Opera Add-ons** has no public submission API (confirmed against Opera's own developer docs — their "Add-ons API" is a client-side `installExtension()` call, unrelated to publishing), so every Opera release — first and subsequent — means uploading `apps/extension/web-ext-artifacts/azi-<version>-edge.zip` (the Chromium-flavored build, not the plain Firefox one) by hand at [addons.opera.com/developer](https://addons.opera.com/developer/).
 
 **Chrome Web Store** isn't wired up at all yet (pending the one-time $5 developer registration fee) — for now, Chrome users load the `-edge.zip` build unpacked via `chrome://extensions` → Developer mode → Load unpacked.
 

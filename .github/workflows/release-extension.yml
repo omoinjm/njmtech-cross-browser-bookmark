@@ -88,10 +88,10 @@ jobs:
         id: zip
         run: |
           VERSION="${{ steps.meta.outputs.version }}"
-          FILES="web-ext-artifacts/azi-${VERSION}.zip"
-          if [ -f "web-ext-artifacts/azi-${VERSION}-edge.zip" ]; then
+          FILES="apps/extension/web-ext-artifacts/azi-${VERSION}.zip"
+          if [ -f "apps/extension/web-ext-artifacts/azi-${VERSION}-edge.zip" ]; then
             FILES="${FILES}
-          web-ext-artifacts/azi-${VERSION}-edge.zip"
+          apps/extension/web-ext-artifacts/azi-${VERSION}-edge.zip"
           fi
           echo "Packaged:"
           echo "$FILES"

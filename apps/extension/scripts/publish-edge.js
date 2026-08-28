@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-// Submits the packaged extension zip (web-ext-artifacts/azi-*.zip) to the
+// Submits the packaged extension zip (apps/extension/web-ext-artifacts/azi-*.zip) to the
 // Microsoft Edge Add-ons Update REST API (v1.1) and publishes the draft.
 // Requires an existing Edge listing created once by hand in Partner Center
 // — this API only updates an existing product, it can't create one. See:
@@ -26,7 +26,10 @@ function requireEnv(name) {
 }
 
 function findPackage() {
-  const dir = path.join(process.cwd(), 'web-ext-artifacts');
+  // __dirname-relative (not cwd-relative) so this resolves the same way
+  // regardless of where `npm run`/`node` is invoked from — matches
+  // build-edge-package.js's ROOT computation.
+  const dir = path.join(__dirname, '..', 'web-ext-artifacts');
   // Specifically the "-edge" suffixed build (see scripts/build-edge-package.js)
   // — Edge's package validator rejects the plain Firefox zip (background.scripts
   // alongside service_worker, and a too-long description), so the two must
