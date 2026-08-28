@@ -246,6 +246,11 @@ main {
   color: var(--text-muted);
 }
 
+.site-footer .footer-links {
+  display: flex;
+  gap: 16px;
+}
+
 .site-footer a {
   color: var(--text-secondary);
   text-decoration: none;
@@ -261,4 +266,62 @@ main {
     gap: 8px;
     text-align: center;
   }
+}
+
+/* Legal pages (privacy policy, etc.) — plain prose in the same dark/mono
+   theme as the marketing page, not another feature-card grid. */
+.legal {
+  padding: 48px 0 64px;
+}
+
+.legal h1 {
+  font-family: var(--font-mono);
+  font-size: clamp(24px, 4vw, 32px);
+  margin: 0 0 8px;
+}
+
+.legal .updated {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0 0 40px;
+}
+
+.legal h2 {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-default);
+  padding-bottom: 8px;
+  margin: 40px 0 16px;
+}
+
+.legal h2:first-of-type {
+  margin-top: 0;
+}
+
+.legal p,
+.legal li {
+  color: var(--text-secondary);
+  font-size: 14.5px;
+  max-width: 720px;
+}
+
+.legal strong {
+  color: var(--text-primary);
+}
+
+.legal ul {
+  margin: 0 0 16px;
+  padding-left: 20px;
+}
+
+.legal li {
+  margin-bottom: 8px;
+}
+
+.legal a {
+  color: var(--accent-green);
 }

@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Azi — Privacy Policy</title>
+    <meta name="description" content="How Azi collects, stores, and uses your data." />
+    <meta name="robots" content="noindex" />
+
+    <link rel="icon" type="image/png" sizes="16x16" href="assets/icons/icon16.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="assets/icons/icon32.png" />
+    <link rel="icon" type="image/png" sizes="48x48" href="assets/icons/icon48.png" />
+    <link rel="icon" type="image/png" sizes="128x128" href="assets/icons/icon128.png" />
+
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="wordmark" href="index.html">
+        <img src="assets/icons/icon32.png" alt="" width="24" height="24" />
+        <span>Azi</span>
+      </a>
+      <a class="btn btn-outline" href="https://github.com/omoinjm/njmtech-cross-browser-bookmark" target="_blank" rel="noopener noreferrer">
+        GitHub
+      </a>
+    </header>
+
+    <main>
+      <section class="legal">
+        <h1>Privacy Policy</h1>
+        <p class="updated">Last updated: August 28, 2026</p>
+
+        <h2>Overview</h2>
+        <p>
+          Azi is a personal bookmark-syncing browser extension, built and operated by <strong>NJM Tech</strong>.
+          This policy covers both the browser extension and the Cloudflare Worker API it talks to at
+          <code>api.bookmark.njmtech.co.za</code>. It does not cover third-party sites you bookmark — Azi only
+          reads and stores the content of pages you explicitly choose to save.
+        </p>
+
+        <h2>What we collect</h2>
+        <ul>
+          <li><strong>Account info:</strong> your email address, and a password (only ever stored as a salted PBKDF2 hash — we never store or can see your actual password).</li>
+          <li><strong>Session tokens:</strong> a login session token is issued to your browser; the server only ever stores a hash of it, never the token itself.</li>
+          <li><strong>Bookmarks:</strong> the URL, title, and your real browser folder path (used as the "category") for each bookmark you save or import.</li>
+          <li><strong>Scraped page content:</strong> when you save a bookmark, we fetch the page once and store its title and body text, used to power full-text and semantic search.</li>
+          <li><strong>AI-generated tags and categories:</strong> automatically generated from the above, used to organize and help you find your bookmarks.</li>
+          <li><strong>Search embeddings:</strong> a numeric vector representation of each bookmark, used only for semantic ("meaning-based") search.</li>
+        </ul>
+        <p>
+          We do not collect your general browsing history, keystrokes, mouse activity, or location. The extension's
+          <code>host_permissions</code> are scoped to exactly one domain — our own API — nothing else.
+        </p>
+
+        <h2>How we use it</h2>
+        <p>
+          Solely to run Azi: syncing your bookmarks, generating tags and category suggestions, powering full-text
+          and semantic search, and emailing you your account password when you request access or a reset. We don't
+          use your data for advertising, and we don't build any profile of you beyond what's needed to run your
+          own bookmark library.
+        </p>
+
+        <h2>Who processes it</h2>
+        <p>Your data is stored and processed by:</p>
+        <ul>
+          <li><strong>Cloudflare</strong> — our entire backend runs on Cloudflare Workers, using Cloudflare D1 (database), Cloudflare Workers AI (tagging, categorization, and embeddings), Cloudflare Vectorize (semantic search), and Cloudflare Browser Rendering (fetching the pages you bookmark).</li>
+          <li><strong>NJM Tech's own email-sending service</strong> — used only to deliver your account-access email (with your generated password). This is our own infrastructure, not a third-party marketing or analytics service.</li>
+        </ul>
+        <p>We do not sell, rent, or share your data with any other third party.</p>
+
+        <h2>Cookies and tracking</h2>
+        <p>
+          Azi does not use cookies. Authentication is handled with a bearer session token stored locally in your
+          browser (<code>browser.storage.local</code>), never synced anywhere except back to our own API. The Azi
+          extension and this website use no third-party analytics, advertising, or tracking scripts of any kind.
+          This site makes one anonymous, unauthenticated request to GitHub's public API to show live star/fork
+          counts — no data about you is sent in that request.
+        </p>
+
+        <h2>Data retention and deletion</h2>
+        <p>
+          You can delete any individual bookmark at any time from the extension or the Library page — this removes
+          it, its scraped content, and its search embedding immediately. Account-level deletion (removing your
+          email, password, and all bookmarks permanently) isn't yet self-service from within the extension — email
+          us at the address below and we'll delete your account and all associated data.
+        </p>
+
+        <h2>Security</h2>
+        <p>
+          All traffic between the extension and our API is encrypted (HTTPS). Passwords are never stored in
+          plaintext — only a salted PBKDF2 hash. Session tokens are only ever stored server-side as a hash; the raw
+          token is shown to you once, at login.
+        </p>
+
+        <h2>Children's privacy</h2>
+        <p>Azi is not directed at children, and we do not knowingly collect data from anyone under 13.</p>
+
+        <h2>Changes to this policy</h2>
+        <p>
+          If this policy changes, we'll update the date above. Material changes will be reflected here before they
+          take effect.
+        </p>
+
+        <h2>Contact</h2>
+        <p>
+          Questions about this policy, or a request to delete your account and data:
+          <a href="mailto:bookmark@njmtech.co.za">bookmark@njmtech.co.za</a>
+        </p>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <span>Azi</span>
+      <span class="footer-links">
+        <a href="privacy.html">Privacy</a>
+        <a href="https://github.com/omoinjm/njmtech-cross-browser-bookmark" target="_blank" rel="noopener noreferrer">github.com/omoinjm/njmtech-cross-browser-bookmark</a>
+      </span>
+    </footer>
+  </body>
+</html>
