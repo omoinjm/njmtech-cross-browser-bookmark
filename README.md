@@ -8,6 +8,7 @@
 [![Release extension](https://github.com/omoinjm/njmtech-cross-browser-bookmark/actions/workflows/release-extension.yml/badge.svg)](https://github.com/omoinjm/njmtech-cross-browser-bookmark/actions/workflows/release-extension.yml)
 [![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](package.json)
 [![Extension](https://img.shields.io/badge/extension-MV3-blue.svg)](extension/manifest.json)
+[![Firefox Add-on](https://img.shields.io/badge/Firefox-Get%20the%20add--on-orange.svg)](https://addons.mozilla.org/addon/azi/)
 
 **The browser extension that remembers so you don't have to.**
 
@@ -172,6 +173,10 @@ Chrome/Edge updates go through the [Chrome Web Store Developer Dashboard](https:
 **Known gap:** no rate limiting. The bearer token stops drive-by public abuse (the main realistic threat for a personal tool), but there's no protection against a leaked token or a runaway extension bug hammering the endpoint. Deliberately deferred.
 
 ## Loading the browser extension
+
+**Firefox users:** install directly from AMO — **[addons.mozilla.org/addon/azi](https://addons.mozilla.org/addon/azi/)**. No setup needed; skip to using the popup below.
+
+The rest of this section is for loading the extension from source (for development, or for Chrome/Edge, which aren't on a store yet).
 
 The extension already points at `https://api.bookmark.njmtech.co.za` (`extension/manifest.json` and `extension/background.js`), which is deployed as a Cloudflare custom domain — see below.
 
