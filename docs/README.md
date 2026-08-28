@@ -124,7 +124,7 @@ flowchart LR
 
 ## Deployment and CI
 
-Two GitHub Actions workflows publish different parts of the project.
+Four GitHub Actions workflows publish different parts of the project. Extension releases are deliberately split into three independent, browser-specific workflows (rather than one combined one) — each triggers off the same tag push and attaches its own zip to the same GitHub Release, coordinated via a shared `concurrency.group` (GitHub enforces these repo-wide across different workflow files, so all three release jobs for one tag run one-at-a-time instead of racing to create the release).
 
 ```mermaid
 flowchart TB
@@ -141,14 +141,21 @@ flowchart TB
     wranglerDeploy["wrangler deploy"]
   end
 
-  subgraph ciRelease [release-extension.yml]
-    extLint["web-ext lint"]
-    extPack["package:firefox\n(azi-version.zip)"]
-    edgePack["package:edge\n(azi-version-edge.zip,\nrewritten manifest)"]
-    ghRelease["GitHub Release\n(both zips)"]
-    edgeSubmit["publish:edge\n(apps/extension/web-ext-artifacts edge zip)"]
+  subgraph ciFirefox [release-firefox.yml]
+    ffPack["package:firefox\n(azi-version.zip)"]
     amoSubmit["publish:firefox\n(web-ext sign)"]
   end
+
+  subgraph ciChrome [release-chrome.yml]
+    chromePack["package:chrome\n(azi-version-chrome.zip)"]
+  end
+
+  subgraph ciEdge [release-edge.yml]
+    edgePack["package:edge\n(azi-version-edge.zip)"]
+    edgeSubmit["publish-edge.js"]
+  end
+
+  ghRelease["GitHub Release\n(one release, three zips —\nconcurrency-serialized writes)"]
 
   subgraph ciPages [deploy-pages.yml]
     pagesDeploy["GitHub Pages\napps/website/ artifact"]
@@ -160,16 +167,19 @@ flowchart TB
     amo["Firefox AMO\nauto-submitted for review"]
     edge["Microsoft Edge Add-ons\nauto-submitted for review\n(after first listing exists)"]
     opera["Opera Add-ons\nmanual upload — no public API"]
+    chromeStore["Chrome Web Store\nnot wired up yet ($5 fee pending)"]
   end
 
-  extCode --> extLint
-  extLint --> extPack
-  extLint --> edgePack
-  extPack --> ghRelease
+  extCode --> ffPack --> amoSubmit --> amo
+  extCode --> chromePack
+  extCode --> edgePack --> edgeSubmit --> edge
+
+  ffPack --> ghRelease
+  chromePack --> ghRelease
   edgePack --> ghRelease
-  extPack --> amoSubmit --> amo
-  edgePack --> edgeSubmit --> edge
-  edgePack -.->|"manual"| opera
+
+  chromePack -.->|"manual (also works for Opera)"| opera
+  chromePack -.->|"manual, once registered"| chromeStore
 
   srcCode --> build
   srcCode --> typecheck
@@ -195,25 +205,26 @@ flowchart TB
 
 Any of the store secrets missing just skips that store's submission step — the GitHub Release step always runs regardless.
 
-### Packaging: two different zips, not one
+### Packaging: three different zips, not one
 
-There are **two** build flavors, and they are not interchangeable — Chromium's package validator (used by both Edge Add-ons and, since Opera is also Chromium-based, almost certainly Opera Add-ons too) rejects two things the Firefox-oriented manifest has:
+There are **three** build flavors, and they are not interchangeable between the Firefox one and the other two — Chromium's package validator (used by both Edge Add-ons and, since Opera is also Chromium-based, almost certainly Opera Add-ons and the Chrome Web Store too) rejects two things the Firefox-oriented manifest has:
 
 - `background.scripts` present alongside `background.service_worker` under `manifest_version: 3` (Firefox needs `scripts`; Chrome/Edge only ever read `service_worker` and `background.js` picks its own bootstrap path via `typeof importScripts`, so `scripts` is dead weight there)
 - a `description` over 132 characters (Firefox/AMO has no such limit)
 
 ```sh
-npm run package:firefox   # apps/extension/web-ext-artifacts/azi-<version>.zip        — Firefox/AMO
-npm run package:edge      # apps/extension/web-ext-artifacts/azi-<version>-edge.zip   — Edge, Opera, Chrome
+npm run package:firefox   # apps/extension/web-ext-artifacts/azi-<version>.zip          — Firefox/AMO
+npm run package:chrome    # apps/extension/web-ext-artifacts/azi-<version>-chrome.zip   — Chrome (and Opera)
+npm run package:edge      # apps/extension/web-ext-artifacts/azi-<version>-edge.zip     — Microsoft Edge
 ```
 
-`package:edge` runs `apps/extension/scripts/build-edge-package.js` first, which copies `apps/extension/extension/` into a gitignored `apps/extension/.edge-build/`, strips `background.scripts` and `browser_specific_settings`, and swaps in a ≤132-character description — then packages *that*. **Use the `-edge.zip` build for Opera's manual upload too**, not the plain one — the plain Firefox zip will fail Opera's validator with the same errors Edge gives.
+`package:chrome` and `package:edge` are two thin wrappers around one shared prep step, `npm run package:chromium` (→ `apps/extension/scripts/build-chromium-package.js`) — there's no real difference between what Chrome and Edge need, so both are built from the exact same rewritten manifest (copies `apps/extension/extension/` into a gitignored `apps/extension/.chromium-build/`, strips `background.scripts` and `browser_specific_settings`, swaps in a ≤132-character description), just packaged under two different filenames. **Use either the `-chrome.zip` or `-edge.zip` build for Opera's manual upload too** (they're identical) — the plain Firefox zip will fail Opera's validator with the same errors Chrome/Edge give.
 
-Both packaging scripts always overwrite `apps/extension/extension/config.js` from `apps/extension/extension/config.example.js` before building, regardless of whatever `config.js` already exists locally — a distributable package must never be able to ship a developer's local override or stale secret.
+All three packaging scripts always overwrite `apps/extension/extension/config.js` from `apps/extension/extension/config.example.js` before building, regardless of whatever `config.js` already exists locally — a distributable package must never be able to ship a developer's local override or stale secret.
 
 ### GitHub Releases, and auto-submission to Firefox/Edge
 
-The [`release-extension.yml`](../.github/workflows/release-extension.yml) workflow lints, packages, and publishes the zip to **GitHub Releases** when you push a version tag:
+Three independent workflows — [`release-firefox.yml`](../.github/workflows/release-firefox.yml), [`release-chrome.yml`](../.github/workflows/release-chrome.yml), [`release-edge.yml`](../.github/workflows/release-edge.yml) — each lint (Firefox only)/package/(maybe submit)/attach-to-release when you push a version tag:
 
 ```sh
 # 1. Bump "version" in apps/extension/extension/manifest.json first
@@ -221,18 +232,18 @@ git tag v1.0.2
 git push origin v1.0.2
 ```
 
-The tag (`v1.0.2`) must match the manifest version (`1.0.2`). You can also run the workflow manually from the Actions tab; it uses the manifest version and creates the tag if needed.
+The tag (`v1.0.2`) must match the manifest version (`1.0.2`). All three workflows fire on that same push and end up attaching their own zip to **one shared GitHub Release** for that tag — `release-firefox.yml` owns the release's title/body/generated notes (a body that lists all three zips), and the other two only supply `files:`, which `softprops/action-gh-release` treats as additive and leaves other fields untouched — so it doesn't matter which of the three actually runs first. You can also run any one of them manually from the Actions tab (**workflow_dispatch**), but that only builds/attaches *that one* browser's zip, not the other two — for a real full release, push a tag so all three fire together.
 
-If the secrets above are configured, the same workflow also:
+If the secrets above are configured:
 
-- **Submits to Firefox AMO** for signing/review via `npm run publish:firefox` (`web-ext sign --channel=listed`).
-- **Submits to Microsoft Edge Add-ons** for review via `npm run publish:edge` (`apps/extension/scripts/publish-edge.js`, calling the [Edge Add-ons Update REST API](https://learn.microsoft.com/en-us/microsoft-edge/extensions/update/api/using-addons-api) directly: upload the draft package, poll until processed, publish the draft, poll until that clears too). This API can only update an **existing** Edge listing — the very first submission for a new extension still has to be done by hand in Partner Center before this takes over.
+- **`release-firefox.yml` submits to Firefox AMO** for signing/review via `npm run publish:firefox` (`web-ext sign --channel=listed`).
+- **`release-edge.yml` submits to Microsoft Edge Add-ons** for review via `apps/extension/scripts/publish-edge.js`, calling the [Edge Add-ons Update REST API](https://learn.microsoft.com/en-us/microsoft-edge/extensions/update/api/using-addons-api) directly: upload the draft package, poll until processed, publish the draft, poll until that clears too. This API can only update an **existing** Edge listing — the very first submission for a new extension still has to be done by hand in Partner Center before this takes over.
 
-Both submission steps are `continue-on-error: true`, so a store review delay/timeout never blocks the GitHub Release.
+Both submission steps are `continue-on-error: true`, so a store review delay/timeout never blocks that workflow's GitHub Release step.
 
-**Opera Add-ons** has no public submission API (confirmed against Opera's own developer docs — their "Add-ons API" is a client-side `installExtension()` call, unrelated to publishing), so every Opera release — first and subsequent — means uploading `apps/extension/web-ext-artifacts/azi-<version>-edge.zip` (the Chromium-flavored build, not the plain Firefox one) by hand at [addons.opera.com/developer](https://addons.opera.com/developer/).
+**Opera Add-ons** has no public submission API (confirmed against Opera's own developer docs — their "Add-ons API" is a client-side `installExtension()` call, unrelated to publishing), so every Opera release — first and subsequent — means uploading either the `-chrome.zip` or `-edge.zip` build (identical Chromium packages, not the plain Firefox one) by hand at [addons.opera.com/developer](https://addons.opera.com/developer/).
 
-**Chrome Web Store** isn't wired up at all yet (pending the one-time $5 developer registration fee) — for now, Chrome users load the `-edge.zip` build unpacked via `chrome://extensions` → Developer mode → Load unpacked.
+**Chrome Web Store** isn't wired up at all yet (pending the one-time $5 developer registration fee) — `release-chrome.yml` still builds and attaches `azi-<version>-chrome.zip` to every release, just with no submission step. For now, Chrome users load that zip unpacked via `chrome://extensions` → Developer mode → Load unpacked.
 
 ## Local development
 

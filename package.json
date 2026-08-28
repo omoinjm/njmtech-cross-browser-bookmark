@@ -14,7 +14,9 @@
     "lint:firefox": "cp apps/extension/extension/config.example.js apps/extension/extension/config.js; web-ext lint --source-dir=apps/extension/extension",
     "package:firefox": "cp apps/extension/extension/config.example.js apps/extension/extension/config.js; web-ext build --source-dir=apps/extension/extension --artifacts-dir=apps/extension/web-ext-artifacts --ignore-files config.example.js --overwrite-dest",
     "publish:firefox": "cp apps/extension/extension/config.example.js apps/extension/extension/config.js; web-ext sign --source-dir=apps/extension/extension --artifacts-dir=apps/extension/web-ext-artifacts --ignore-files config.example.js --channel=listed",
-    "package:edge": "node apps/extension/scripts/build-edge-package.js && web-ext build --source-dir=apps/extension/.edge-build --artifacts-dir=apps/extension/web-ext-artifacts --ignore-files config.example.js --filename \"{name}-{version}-edge.zip\" --overwrite-dest",
+    "package:chromium": "node apps/extension/scripts/build-chromium-package.js",
+    "package:chrome": "npm run package:chromium && web-ext build --source-dir=apps/extension/.chromium-build --artifacts-dir=apps/extension/web-ext-artifacts --ignore-files config.example.js --filename \"{name}-{version}-chrome.zip\" --overwrite-dest",
+    "package:edge": "npm run package:chromium && web-ext build --source-dir=apps/extension/.chromium-build --artifacts-dir=apps/extension/web-ext-artifacts --ignore-files config.example.js --filename \"{name}-{version}-edge.zip\" --overwrite-dest",
     "publish:edge": "npm run package:edge && node apps/extension/scripts/publish-edge.js"
   },
   "dependencies": {

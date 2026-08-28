@@ -1,17 +1,19 @@
 #!/usr/bin/env node
 'use strict';
 
-// Prepares a Chromium-flavored copy of extension/ into .edge-build/ for
-// packaging (see package.json's "package:edge"). Edge Add-ons (and Chrome,
-// which shares the same package validator) rejects two things Firefox
-// requires/allows:
+// Prepares a Chromium-flavored copy of extension/ into .chromium-build/ for
+// packaging (see package.json's "package:chrome" and "package:edge" — both
+// Chrome and Edge need exactly the same manifest shape, so they share this
+// one prep step and only differ in the output zip's filename). Chromium's
+// package validator (used by both Chrome Web Store and Edge Add-ons) rejects
+// two things Firefox requires/allows:
 //
 // - background.scripts alongside background.service_worker — Firefox needs
 //   "scripts" (no real service worker support there historically); Chrome/
 //   Edge only ever read "service_worker" and background.js itself detects
 //   which context it's in via `typeof importScripts` (see background.js) —
-//   so "scripts" is pure dead weight on Chromium and Edge's validator
-//   errors on its presence under manifest_version 3.
+//   so "scripts" is pure dead weight on Chromium and its validator errors on
+//   its presence under manifest_version 3.
 // - manifest "description" over 132 characters — Firefox/AMO has no such
 //   limit, so the canonical extension/manifest.json keeps the longer,
 //   friendlier copy; only this Chromium build gets the trimmed one.
@@ -25,9 +27,9 @@ const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
 const SRC_DIR = path.join(ROOT, 'extension');
-const BUILD_DIR = path.join(ROOT, '.edge-build');
+const BUILD_DIR = path.join(ROOT, '.chromium-build');
 
-const EDGE_DESCRIPTION =
+const CHROMIUM_DESCRIPTION =
   "The browser extension that remembers so you don't have to — AI-tagged, searchable bookmark sync.";
 
 function main() {
@@ -39,7 +41,7 @@ function main() {
 
   delete manifest.background.scripts;
   delete manifest.browser_specific_settings;
-  manifest.description = EDGE_DESCRIPTION;
+  manifest.description = CHROMIUM_DESCRIPTION;
 
   fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
 

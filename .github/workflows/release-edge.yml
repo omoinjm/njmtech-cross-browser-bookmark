@@ -1,0 +1,80 @@
+name: Release Edge
+
+# Builds the Edge zip, submits it to Microsoft Edge Add-ons for review, and
+# attaches it to a GitHub Release for the pushed tag. Push a tag that
+# matches apps/extension/extension/manifest.json, e.g.:
+#   git tag v1.0.2 && git push origin v1.0.2
+# This also fires release-firefox.yml and release-chrome.yml (same
+# trigger) — together they build all three browsers' zips onto ONE shared
+# release. Running just this one manually (workflow_dispatch) only
+# builds/attaches the Edge zip, not the other two.
+#
+# Edge submission requires three repository secrets under Settings →
+# Secrets and variables → Actions: EDGE_CLIENT_ID, EDGE_API_KEY (both from
+# Partner Center → Microsoft Edge → Publish API → Create API credentials)
+# and EDGE_PRODUCT_ID (from the extension's page in Partner Center). The
+# Edge API can only update an EXISTING listing, so the first submission
+# must be done by hand in Partner Center before this can take over for
+# subsequent versions. Missing secrets just skip that step — the GitHub
+# Release step still runs.
+on:
+  push:
+    tags:
+      - v*
+  workflow_dispatch:
+
+# Shared group name with release-firefox.yml/release-chrome.yml — see that
+# file's comment for why (serializes writes to the same GitHub Release).
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      EDGE_CLIENT_ID: ${{ secrets.EDGE_CLIENT_ID }}
+      EDGE_API_KEY: ${{ secrets.EDGE_API_KEY }}
+      EDGE_PRODUCT_ID: ${{ secrets.EDGE_PRODUCT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: npm ci
+
+      - name: Verify tag matches manifest version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          TAG="${GITHUB_REF#refs/tags/v}"
+          VERSION=$(node -p "require('./apps/extension/extension/manifest.json').version")
+          if [ "$TAG" != "$VERSION" ]; then
+            echo "Tag v${TAG} does not match apps/extension/extension/manifest.json version ${VERSION}"
+            exit 1
+          fi
+
+      - run: npm run package:edge
+
+      - name: Submit to Microsoft Edge Add-ons
+        if: ${{ env.EDGE_CLIENT_ID != '' && env.EDGE_API_KEY != '' && env.EDGE_PRODUCT_ID != '' }}
+        continue-on-error: true
+        run: node apps/extension/scripts/publish-edge.js
+
+      - name: Resolve release version
+        id: meta
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=$(node -p "require('./apps/extension/extension/manifest.json').version")" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', steps.meta.outputs.version) }}
+          files: apps/extension/web-ext-artifacts/azi-${{ steps.meta.outputs.version }}-edge.zip

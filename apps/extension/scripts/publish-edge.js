@@ -28,12 +28,12 @@ function requireEnv(name) {
 function findPackage() {
   // __dirname-relative (not cwd-relative) so this resolves the same way
   // regardless of where `npm run`/`node` is invoked from — matches
-  // build-edge-package.js's ROOT computation.
+  // build-chromium-package.js's ROOT computation.
   const dir = path.join(__dirname, '..', 'web-ext-artifacts');
-  // Specifically the "-edge" suffixed build (see scripts/build-edge-package.js)
-  // — Edge's package validator rejects the plain Firefox zip (background.scripts
-  // alongside service_worker, and a too-long description), so the two must
-  // never be confused with each other even though both can exist side by side.
+  // Specifically the "-edge" suffixed build (see scripts/build-chromium-package.js
+  // and package.json's "package:edge") — Edge and Chrome share the same
+  // underlying Chromium build, just packaged under different filenames, so
+  // this must never grab the "-chrome" one or the plain Firefox zip by mistake.
   const zip = fs.existsSync(dir) && fs.readdirSync(dir).find((f) => /^azi-.*-edge\.zip$/.test(f));
   if (!zip) {
     console.error(`No azi-*-edge.zip found in ${dir} — run "npm run package:edge" first.`);

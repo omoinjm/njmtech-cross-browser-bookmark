@@ -8,7 +8,7 @@ dist/
 .DS_Store
 apps/extension/extension/config.js
 web-ext-artifacts/
-.edge-build/
+.chromium-build/
 test-results/
 playwright-report/
 blob-report/

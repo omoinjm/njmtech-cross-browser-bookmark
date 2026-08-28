@@ -5,7 +5,9 @@
 # [Azi](https://bookmark.njmtech.co.za)
 
 [![Deploy](https://github.com/omoinjm/njmtech-cross-browser-bookmark/actions/workflows/deploy.yml/badge.svg)](https://github.com/omoinjm/njmtech-cross-browser-bookmark/actions/workflows/deploy.yml)
-[![Release extension](https://github.com/omoinjm/njmtech-cross-browser-bookmark/actions/workflows/release-extension.yml/badge.svg)](https://github.com/omoinjm/njmtech-cross-browser-bookmark/actions/workflows/release-extension.yml)
+[![Release Firefox](https://github.com/omoinjm/njmtech-cross-browser-bookmark/actions/workflows/release-firefox.yml/badge.svg)](https://github.com/omoinjm/njmtech-cross-browser-bookmark/actions/workflows/release-firefox.yml)
+[![Release Chrome](https://github.com/omoinjm/njmtech-cross-browser-bookmark/actions/workflows/release-chrome.yml/badge.svg)](https://github.com/omoinjm/njmtech-cross-browser-bookmark/actions/workflows/release-chrome.yml)
+[![Release Edge](https://github.com/omoinjm/njmtech-cross-browser-bookmark/actions/workflows/release-edge.yml/badge.svg)](https://github.com/omoinjm/njmtech-cross-browser-bookmark/actions/workflows/release-edge.yml)
 [![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](package.json)
 [![Extension](https://img.shields.io/badge/extension-MV3-blue.svg)](apps/extension/extension/manifest.json)
 [![Firefox Add-on](https://img.shields.io/badge/Firefox-Get%20the%20add--on-orange.svg)](https://addons.mozilla.org/addon/azi/)
