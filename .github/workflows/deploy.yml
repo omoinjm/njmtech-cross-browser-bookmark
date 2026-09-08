@@ -5,7 +5,20 @@ on:
     branches: [main]
 
 jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: npm run typecheck
+
   build:
+    needs: [typecheck]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,19 +33,8 @@ jobs:
       # unresolvable modules) that type-checking alone wouldn't.
       - run: npm run build
 
-  typecheck:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: npm run typecheck
-
   cross-browser-test:
+    needs: [build]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -53,7 +55,7 @@ jobs:
       - run: npm run lint:firefox
 
   deploy:
-    needs: [build, typecheck, cross-browser-test]
+    needs: [cross-browser-test]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
