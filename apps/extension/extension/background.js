@@ -268,12 +268,29 @@ browser.contextMenus.onClicked.addListener((info, tab) => {
 });
 
 browser.commands.onCommand.addListener(async (command) => {
-  if (command !== 'save-current-tab') return;
+  if (command === 'save-current-tab') {
+    const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.url) return;
 
-  const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.url) return;
+    captureUrl(tab.url, tab.title).catch((err) => console.error('[BookmarkSync] Save-current-tab failed:', err));
+    return;
+  }
 
-  captureUrl(tab.url, tab.title).catch((err) => console.error('[BookmarkSync] Save-current-tab failed:', err));
+  if (command === 'open-search-tab') {
+    // openPopup() only works while the shortcut's user gesture is still
+    // "live" — Chrome drops that as soon as this listener awaits anything,
+    // so it must be the very first call kicked off here, with no await in
+    // front of it. Popup.js reads pendingPopupTab on init and switches
+    // straight to the Search tab (openPopup() takes no arguments, so
+    // storage is the only way to tell it which tab the shortcut meant).
+    const openPromise = browser.action.openPopup();
+    try {
+      await browser.storage.local.set({ pendingPopupTab: 'search' });
+      await openPromise;
+    } catch (err) {
+      console.error('[BookmarkSync] Open-search-tab failed:', err);
+    }
+  }
 });
 
 async function captureUrl(url, title) {

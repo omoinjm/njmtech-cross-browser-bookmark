@@ -545,11 +545,12 @@ logoutBtn.addEventListener('click', async () => {
 });
 
 (async function init() {
-  const { syncState, recentActivity, settings, sessionToken } = await browser.storage.local.get([
+  const { syncState, recentActivity, settings, sessionToken, pendingPopupTab } = await browser.storage.local.get([
     'syncState',
     'recentActivity',
     'settings',
     'sessionToken',
+    'pendingPopupTab',
   ]);
   renderProgress(syncState);
   renderActivity(recentActivity);
@@ -561,5 +562,18 @@ logoutBtn.addEventListener('click', async () => {
   // default for an already-logged-in visitor opening the popup fresh.
   setTabsAuthGate(Boolean(sessionToken));
   if (sessionToken) switchTab('import');
+
+  // The open-search-tab shortcut (background.js) stashes this before calling
+  // openPopup() — consume it once so a later, ordinary popup open doesn't
+  // keep landing on Search. Only honored when logged in, since the Search
+  // tab is auth-gated and wouldn't be visible otherwise.
+  if (pendingPopupTab) {
+    await browser.storage.local.remove('pendingPopupTab');
+    if (pendingPopupTab === 'search' && sessionToken) {
+      switchTab('search');
+      searchInput.focus();
+    }
+  }
+
   await refreshAccountView();
 })();

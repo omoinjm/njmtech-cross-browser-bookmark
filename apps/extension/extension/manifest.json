@@ -28,6 +28,12 @@
         "default": "Alt+Shift+W"
       },
       "description": "Save the current tab to the Library"
+    },
+    "open-search-tab": {
+      "suggested_key": {
+        "default": "Alt+Shift+X"
+      },
+      "description": "Open Azi's Search tab"
     }
   },
   "omnibox": {
