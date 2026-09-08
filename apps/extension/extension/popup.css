@@ -155,6 +155,52 @@ button:disabled {
   margin: 4px 0;
 }
 
+/* --- Profile switcher --- */
+
+#profile-switcher[hidden] {
+  display: none;
+}
+
+#profile-select,
+#new-profile-name {
+  width: 100%;
+  padding: 7px 10px;
+  margin-bottom: 6px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-primary);
+  background: var(--bg-inset);
+  border: 1px solid var(--border-default);
+  border-radius: 0;
+}
+
+#new-profile-form[hidden] {
+  display: none;
+}
+
+#new-profile-form {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+#new-profile-form input {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+#new-profile-form button {
+  width: auto;
+  margin-bottom: 0;
+}
+
+#profile-status {
+  margin: 0 0 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
 /* --- Tabs --- */
 
 #tab-bar {

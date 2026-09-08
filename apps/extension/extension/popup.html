@@ -10,6 +10,16 @@
     <h1>Azi</h1>
     <p class="tagline">The browser extension that remembers so you don't have to.</p>
 
+    <div id="profile-switcher" hidden>
+      <select id="profile-select" aria-label="Active profile"></select>
+      <form id="new-profile-form" hidden>
+        <input id="new-profile-name" type="text" placeholder="e.g. Work" autocomplete="off" required />
+        <button type="submit">Create</button>
+        <button type="button" id="new-profile-cancel-btn">Cancel</button>
+      </form>
+      <p id="profile-status"></p>
+    </div>
+
     <div id="tab-bar" role="tablist">
       <button class="tab-btn" type="button" role="tab" aria-selected="false" data-tab="import" hidden>Import</button>
       <button class="tab-btn" type="button" role="tab" aria-selected="false" data-tab="suggest" hidden>Suggest</button>
@@ -94,6 +104,7 @@
 
     <script src="browser-polyfill.js"></script>
     <script src="config.js"></script>
+    <script src="api-client.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>

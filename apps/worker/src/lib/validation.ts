@@ -3,6 +3,7 @@ export const MAX_TITLE_CHARS = 500;
 export const MAX_CATEGORY_CHARS = 200;
 export const MAX_TAG_CHARS = 50;
 export const MAX_TAGS_COUNT = 20;
+export const MAX_PROFILE_NAME_CHARS = 60;
 
 export function isHttpUrl(value: string): boolean {
   try {

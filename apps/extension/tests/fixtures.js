@@ -38,9 +38,19 @@ const test = base.extend({
     // navigation, but Chromium's native `chrome.*` APIs are always there.
     // storage.local is shared across every extension context (background
     // included), so a write from a page is visible to background.js too.
+    // activeProfile is seeded alongside sessionToken for the same reason:
+    // the profile switcher (popup.js/library.js's loadProfileSwitcher) calls
+    // GET /profiles on every page load now, and without a pre-resolved
+    // activeProfile every existing test's mocked routes would also need a
+    // profiles handler just to satisfy that call — seeding it here keeps
+    // existing tests' route mocks unchanged. Must match the fake profile id
+    // returned by the /profiles mock in extension.spec.js's default routes.
     await context.addInitScript(() => {
       if (typeof chrome !== 'undefined' && chrome.storage) {
-        chrome.storage.local.set({ sessionToken: 'test-session-token' });
+        chrome.storage.local.set({
+          sessionToken: 'test-session-token',
+          activeProfile: { id: 1, name: 'Personal' },
+        });
       }
     });
 

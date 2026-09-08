@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import type { AppEnv } from '../../http-context';
 import { requireSession } from '../../middleware/require-session';
+import { requireProfile } from '../../middleware/require-profile';
 import {
   isHttpUrl,
   isPubliclyRoutableUrl,
@@ -15,6 +16,7 @@ import {
 export const bookmarks = new Hono<AppEnv>();
 
 bookmarks.use('*', requireSession);
+bookmarks.use('*', requireProfile);
 
 // The payload is just { url, title } — 8KB is generous headroom, and capping
 // it stops a maliciously huge body from being parsed/stored for free.
@@ -52,10 +54,11 @@ bookmarks.post(
     }
 
     const user = c.get('user');
+    const profile = c.get('profile');
     const { repository, pipeline } = c.get('deps');
     const category = payload?.category?.trim().slice(0, MAX_CATEGORY_CHARS) || null;
 
-    const existing = await repository.findByUrl(user.id, url);
+    const existing = await repository.findByUrl(user.id, profile.id, url);
     if (existing) {
       // A folder-derived `category` always reflects where the bookmark
       // really lives right now, so it's safe to overwrite whatever was
@@ -66,7 +69,7 @@ bookmarks.post(
       if (category && category !== existing.category) {
         await repository.updateCategory(existing.id, category);
       } else if (!existing.category && payload?.suggestCategory) {
-        c.executionCtx.waitUntil(pipeline.categorizeExisting(user.id, existing.id));
+        c.executionCtx.waitUntil(pipeline.categorizeExisting(user.id, profile.id, existing.id));
       }
 
       // Independent of category state — an import re-syncing an already-
@@ -74,7 +77,7 @@ bookmarks.post(
       // (e.g. a pre-existing row claimed via the ownership migration),
       // rather than waiting on the periodic backfill cron to get to it.
       if (!existing.embedded_at) {
-        c.executionCtx.waitUntil(pipeline.embedExisting(user.id, existing.id));
+        c.executionCtx.waitUntil(pipeline.embedExisting(user.id, profile.id, existing.id));
       }
 
       return c.json({ id: existing.id, status: existing.status, message: 'Bookmark already exists' }, 200);
@@ -85,7 +88,7 @@ bookmarks.post(
     // background. Truncated defensively — this is a display hint, not
     // load-bearing data.
     const initialTitle = payload?.title?.trim().slice(0, MAX_TITLE_CHARS) || null;
-    const id = await repository.create(user.id, url, initialTitle, category);
+    const id = await repository.create(user.id, profile.id, url, initialTitle, category);
 
     // Only ever suggest a category when none was supplied — a real folder
     // path always wins, regardless of what the client sent for this flag.
@@ -94,7 +97,7 @@ bookmarks.post(
     // Fire-and-forget background job. Cloudflare keeps the Worker instance
     // alive until this promise settles, even though the response above has
     // already been sent to the client.
-    c.executionCtx.waitUntil(pipeline.process(user.id, id, url, { suggestCategory }));
+    c.executionCtx.waitUntil(pipeline.process(user.id, profile.id, id, url, { suggestCategory }));
 
     return c.json({ id, status: 'pending' }, 202);
   }
@@ -116,8 +119,9 @@ bookmarks.get('/', async (c) => {
   const offset = clampInt(c.req.query('offset'), 0, Number.MAX_SAFE_INTEGER, 0);
 
   const user = c.get('user');
+  const profile = c.get('profile');
   const { repository } = c.get('deps');
-  const rows = await repository.list(user.id, { tag, category, limit, offset });
+  const rows = await repository.list(user.id, profile.id, { tag, category, limit, offset });
 
   return c.json({
     bookmarks: rows.map((row) => ({ ...row, tags: safeParseTags(row.tags) })),
@@ -188,8 +192,9 @@ bookmarks.patch(
     }
 
     const user = c.get('user');
+    const profile = c.get('profile');
     const { repository } = c.get('deps');
-    const updated = await repository.updateByUrl(user.id, url, fields);
+    const updated = await repository.updateByUrl(user.id, profile.id, url, fields);
 
     if (!updated) {
       return c.json({ error: 'Not found' }, 404);
@@ -212,8 +217,9 @@ bookmarks.delete('/', async (c) => {
   }
 
   const user = c.get('user');
+  const profile = c.get('profile');
   const { repository, semanticIndex } = c.get('deps');
-  const deletedId = await repository.deleteByUrl(user.id, url);
+  const deletedId = await repository.deleteByUrl(user.id, profile.id, url);
 
   if (!deletedId) {
     return c.json({ error: 'Not found' }, 404);
@@ -239,8 +245,9 @@ bookmarks.delete('/', async (c) => {
  */
 bookmarks.get('/url-categories', async (c) => {
   const user = c.get('user');
+  const profile = c.get('profile');
   const { repository } = c.get('deps');
-  const rows = await repository.listUrlCategories(user.id);
+  const rows = await repository.listUrlCategories(user.id, profile.id);
 
   const categories: Record<string, string | null> = {};
   for (const row of rows) {
@@ -261,8 +268,9 @@ bookmarks.get('/:id', async (c) => {
   }
 
   const user = c.get('user');
+  const profile = c.get('profile');
   const { repository } = c.get('deps');
-  const row = await repository.findById(user.id, id);
+  const row = await repository.findById(user.id, profile.id, id);
 
   if (!row) {
     return c.json({ error: 'Not found' }, 404);

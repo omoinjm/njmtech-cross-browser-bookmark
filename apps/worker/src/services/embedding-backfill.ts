@@ -34,8 +34,9 @@ export async function runEmbeddingBackfillBatch(deps: Dependencies, batchSize: n
     try {
       const vector = await embeddingGenerator.embed(buildEmbeddingInput(bookmark.title, bookmark.body_text));
       // listUnembeddedProcessed's WHERE clause already excludes user_id IS
-      // NULL rows, so this is always populated here.
-      await semanticIndex.upsert(bookmark.id, bookmark.user_id!, vector);
+      // NULL rows, and every row with a user_id also has a profile_id (set
+      // at create time, or by the migrations/0005_add_profiles.sql backfill).
+      await semanticIndex.upsert(bookmark.id, bookmark.user_id!, bookmark.profile_id!, vector);
       await repository.markEmbedded(bookmark.id);
       embedded++;
     } catch (err) {

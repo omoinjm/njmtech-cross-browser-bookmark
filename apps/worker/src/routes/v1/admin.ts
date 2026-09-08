@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import type { AppEnv } from '../../http-context';
 import { requireSession } from '../../middleware/require-session';
 import { runEmbeddingBackfillBatch } from '../../services/embedding-backfill';
+import { runProfileMetadataBackfillBatch } from '../../services/profile-metadata-backfill';
 
 export const admin = new Hono<AppEnv>();
 
@@ -22,5 +23,22 @@ admin.use('*', requireSession);
  */
 admin.post('/backfill-embeddings', async (c) => {
   const result = await runEmbeddingBackfillBatch(c.get('deps'));
+  return c.json(result);
+});
+
+/**
+ * POST /api/v1/admin/backfill-profile-metadata?offset=0
+ * One-time migration cleanup for accounts that had embedded bookmarks
+ * before migrations/0005_add_profiles.sql — see
+ * services/profile-metadata-backfill.ts for why this exists and why it's
+ * NOT on the scheduled cron like backfill-embeddings above. Call repeatedly,
+ * passing each response's `nextOffset` back in as `?offset=`, until
+ * `moreRemaining` is false. Must be run to completion before the extension
+ * starts sending X-Profile-Id in production, or profile-scoped semantic
+ * search would silently miss every bookmark embedded before this shipped.
+ */
+admin.post('/backfill-profile-metadata', async (c) => {
+  const offset = Number(c.req.query('offset')) || 0;
+  const result = await runProfileMetadataBackfillBatch(c.get('deps'), offset);
   return c.json(result);
 });

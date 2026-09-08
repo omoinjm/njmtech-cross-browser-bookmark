@@ -27,6 +27,10 @@ export interface BookmarkRow {
   // one-off ownership backfill (see migrations/0004_add_bookmark_ownership.sql)
   // — every row created by application code always has one.
   user_id: number | null;
+  // Nullable for the same reason: rows predating migrations/0005_add_profiles.sql
+  // that were never claimed by a user (user_id IS NULL) also have no
+  // profile. Every row with a user_id has a profile_id too, going forward.
+  profile_id: number | null;
   url: string;
   title: string | null;
   body_text: string | null;
@@ -73,4 +77,11 @@ export interface ReorgBookmarkRow {
 export interface AuthenticatedUser {
   id: number;
   email: string;
+}
+
+export interface ProfileRow {
+  id: number;
+  user_id: number;
+  name: string;
+  created_at: string;
 }

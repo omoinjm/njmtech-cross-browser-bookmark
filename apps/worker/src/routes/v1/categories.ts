@@ -2,11 +2,13 @@ import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import type { AppEnv } from '../../http-context';
 import { requireSession } from '../../middleware/require-session';
+import { requireProfile } from '../../middleware/require-profile';
 import { MAX_CATEGORY_CHARS } from '../../lib/validation';
 
 export const categories = new Hono<AppEnv>();
 
 categories.use('*', requireSession);
+categories.use('*', requireProfile);
 
 /**
  * GET /api/v1/categories
@@ -18,8 +20,9 @@ categories.use('*', requireSession);
  */
 categories.get('/', async (c) => {
   const user = c.get('user');
+  const profile = c.get('profile');
   const { repository } = c.get('deps');
-  const results = await repository.listCategories(user.id);
+  const results = await repository.listCategories(user.id, profile.id);
   return c.json({ categories: results });
 });
 
@@ -37,10 +40,11 @@ const MAX_REORG_BOOKMARKS = 500;
  */
 categories.post('/suggest-reorganization', async (c) => {
   const user = c.get('user');
+  const profile = c.get('profile');
   const { repository, categoryReorganizer } = c.get('deps');
   const [currentCategories, candidateBookmarks] = await Promise.all([
-    repository.listCategories(user.id),
-    repository.listForReorg(user.id, MAX_REORG_BOOKMARKS),
+    repository.listCategories(user.id, profile.id),
+    repository.listForReorg(user.id, profile.id, MAX_REORG_BOOKMARKS),
   ]);
   const suggestions = await categoryReorganizer.suggest(currentCategories, candidateBookmarks);
   return c.json({ suggestions });
@@ -91,8 +95,9 @@ categories.post(
     }
 
     const user = c.get('user');
+    const profile = c.get('profile');
     const { repository } = c.get('deps');
-    const currentCategories = await repository.listCategories(user.id);
+    const currentCategories = await repository.listCategories(user.id, profile.id);
     const validCategoryNames = new Set(currentCategories.map((cat) => cat.category));
 
     const categoryMapping = rawItems
@@ -107,7 +112,7 @@ categories.post(
     const bookmarkIds = bookmarkItems
       .map((item) => Number(item.bookmarkId))
       .filter((id) => Number.isInteger(id));
-    const bookmarksById = new Map((await repository.listByIds(user.id, bookmarkIds)).map((b) => [b.id, b]));
+    const bookmarksById = new Map((await repository.listByIds(user.id, profile.id, bookmarkIds)).map((b) => [b.id, b]));
 
     const bookmarkMoves = bookmarkItems
       .map((item) => ({
@@ -127,8 +132,8 @@ categories.post(
       );
     }
 
-    await repository.applyReorganization(user.id, categoryMapping);
-    await repository.applyBookmarkMoves(user.id, bookmarkMoves);
+    await repository.applyReorganization(user.id, profile.id, categoryMapping);
+    await repository.applyBookmarkMoves(user.id, profile.id, bookmarkMoves);
 
     return c.json({ applied: categoryMapping.length + bookmarkMoves.length });
   }

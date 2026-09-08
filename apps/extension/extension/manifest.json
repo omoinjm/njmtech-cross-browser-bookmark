@@ -19,6 +19,7 @@
     "scripts": [
       "browser-polyfill.js",
       "config.js",
+      "api-client.js",
       "background.js"
     ]
   },

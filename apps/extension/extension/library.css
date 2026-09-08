@@ -66,6 +66,43 @@ header h1::before {
   color: var(--accent-green-dim);
 }
 
+#profile-switcher {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+#profile-select {
+  padding: 7px 10px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-primary);
+  background: var(--bg-inset);
+  border: 1px solid var(--border-default);
+  border-radius: 0;
+}
+
+#new-profile-form {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#new-profile-form[hidden] {
+  display: none;
+}
+
+#new-profile-name {
+  padding: 7px 10px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-primary);
+  background: var(--bg-inset);
+  border: 1px solid var(--border-default);
+  border-radius: 0;
+}
+
 #search-input {
   flex: 1;
   max-width: 480px;

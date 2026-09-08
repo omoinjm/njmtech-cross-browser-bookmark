@@ -4,6 +4,7 @@
 
 DROP TABLE IF EXISTS bookmarks_fts;
 DROP TABLE IF EXISTS bookmarks;
+DROP TABLE IF EXISTS profiles;
 DROP TABLE IF EXISTS sessions;
 DROP TABLE IF EXISTS users;
 
@@ -34,6 +35,24 @@ CREATE TABLE sessions (
 CREATE INDEX idx_sessions_user_id ON sessions (user_id);
 CREATE INDEX idx_sessions_expires_at ON sessions (expires_at);
 
+-- A named partition of one user's bookmarks (e.g. "Personal", "Work", or
+-- anything else they choose) — profiles are strictly siloed from each other
+-- (see BookmarkRepository/require-profile.ts: every bookmark query is scoped
+-- to one profile_id, the same hard-boundary treatment user_id already gets).
+-- Every user gets a "Personal" profile lazily, the first time they need one
+-- and don't already have any (see ProfileRepository.getOrCreateDefault) —
+-- there's no separate "is this the default" flag; the oldest profile by
+-- created_at is treated as the implicit default.
+CREATE TABLE profiles (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id    INTEGER NOT NULL REFERENCES users(id),
+  name       TEXT NOT NULL COLLATE NOCASE, -- NOCASE: "Personal" and "personal" can't coexist
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (user_id, name)
+);
+
+CREATE INDEX idx_profiles_user_id ON profiles (user_id);
+
 -- Main table. `status` tracks the async scrape/tag pipeline so the API can
 -- return instantly on POST and let waitUntil() fill in the rest later.
 --
@@ -44,14 +63,17 @@ CREATE INDEX idx_sessions_expires_at ON sessions (expires_at);
 -- (from the real folder, or an AI suggestion for unfiled bookmarks) and
 -- never overwritten afterward; tags are (re)written by the tagging pipeline.
 --
--- `UNIQUE (user_id, url)`, not a bare unique url: two different users
--- bookmarking the same URL are two independent rows, each scoped to its own
--- owner — see BookmarkRepository, where every method takes a userId and
--- enforces it in its WHERE clause as a hard security boundary, not just a
--- convenience filter.
+-- `UNIQUE (user_id, profile_id, url)`, not a bare unique url: two different
+-- users bookmarking the same URL are two independent rows, each scoped to
+-- its own owner, and the same user's two different profiles bookmarking the
+-- same URL are likewise independent (profiles are strictly siloed) — see
+-- BookmarkRepository, where every method takes a userId AND a profileId and
+-- enforces both in its WHERE clause as a hard security/isolation boundary,
+-- not just a convenience filter.
 CREATE TABLE bookmarks (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id      INTEGER REFERENCES users(id),
+  profile_id   INTEGER REFERENCES profiles(id),
   url          TEXT NOT NULL,
   title        TEXT,
   body_text    TEXT,
@@ -67,12 +89,13 @@ CREATE TABLE bookmarks (
   -- just "has it been done" bookkeeping so a backfill run can skip rows
   -- that already have one.
   embedded_at  TEXT,
-  UNIQUE (user_id, url)
+  UNIQUE (user_id, profile_id, url)
 );
 
 CREATE INDEX idx_bookmarks_status ON bookmarks (status);
-CREATE INDEX idx_bookmarks_category ON bookmarks (category);
+CREATE INDEX idx_bookmarks_profile_category ON bookmarks (profile_id, category);
 CREATE INDEX idx_bookmarks_user_id ON bookmarks (user_id);
+CREATE INDEX idx_bookmarks_profile_id ON bookmarks (profile_id);
 
 -- FTS5 virtual table using the "external content" pattern: it stores no data
 -- of its own, just an inverted index over bookmarks.title/body_text/tags/

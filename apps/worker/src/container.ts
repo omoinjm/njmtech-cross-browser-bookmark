@@ -1,5 +1,6 @@
 import type { Env } from './env';
 import { D1BookmarkRepository, type BookmarkRepository } from './repositories/bookmark-repository';
+import { D1ProfileRepository, type ProfileRepository } from './repositories/profile-repository';
 import { D1UserRepository, type UserRepository } from './repositories/user-repository';
 import { D1SessionRepository, type SessionRepository } from './repositories/session-repository';
 import { BrowserRenderingScraper, type PageScraper } from './services/page-scraper';
@@ -22,6 +23,7 @@ import { BookmarkIngestionPipeline } from './services/bookmark-ingestion-pipelin
  */
 export interface Dependencies {
   repository: BookmarkRepository;
+  profileRepository: ProfileRepository;
   pipeline: BookmarkIngestionPipeline;
   categoryReorganizer: CategoryReorganizer;
   searchQueryExpander: SearchQueryExpander;
@@ -35,6 +37,7 @@ export interface Dependencies {
 
 export function buildDependencies(env: Env): Dependencies {
   const repository: BookmarkRepository = new D1BookmarkRepository(env.DB);
+  const profileRepository: ProfileRepository = new D1ProfileRepository(env.DB);
   const scraper: PageScraper = new BrowserRenderingScraper(env.BROWSER);
   const tagger: TagGenerator = new WorkersAiTagGenerator(env.AI);
   const categoryClassifier: CategoryClassifier = new WorkersAiCategoryClassifier(env.AI);
@@ -58,6 +61,7 @@ export function buildDependencies(env: Env): Dependencies {
 
   return {
     repository,
+    profileRepository,
     pipeline,
     categoryReorganizer,
     searchQueryExpander,

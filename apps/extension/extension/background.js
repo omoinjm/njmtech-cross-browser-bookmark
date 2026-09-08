@@ -20,19 +20,13 @@
 // instead would be wrong, since recent Chromium versions predefine a native
 // `browser` global too.
 if (typeof importScripts === 'function') {
-  importScripts('browser-polyfill.js', 'config.js');
+  importScripts('browser-polyfill.js', 'config.js', 'api-client.js');
 }
 
-// WORKER_API_URL comes from config.js (loaded above). Authentication is a
-// per-account session token (see auth.ts server-side), not a static
-// config-file secret — obtained via the popup's Account tab logging in,
-// stored here in storage.local, and read fresh on every request so a
-// logout/re-login in the popup takes effect immediately for background
-// syncs too.
-async function getSessionToken() {
-  const { sessionToken } = await browser.storage.local.get('sessionToken');
-  return sessionToken || null;
-}
+// getSessionToken/getActiveProfile/apiGet/apiPost/apiPatch/apiDelete/
+// resolveActiveProfile/FETCH_TIMEOUT_MS all come from api-client.js (loaded
+// above), which also folds in the session token and X-Profile-Id headers —
+// see that file for details.
 
 // No server-side rate limiting exists yet, and Browser Rendering/Workers AI
 // both have concurrency limits — importing hundreds of bookmarks at once
@@ -40,14 +34,12 @@ async function getSessionToken() {
 // out client-side keeps a bulk import from tripping either.
 const IMPORT_DELAY_MS = 500;
 
-// The POST itself should return fast — the Worker only does a DB insert/
-// lookup before responding, deferring scrape/tag/categorize to a background
-// waitUntil(). But the import loop processes one bookmark at a time and
-// awaits each fetch fully, so a single hung request (bad network, a stalled
-// connection, anything) would otherwise block the whole import indefinitely
-// with no way to skip past it. Bounding it means a stuck request just counts
-// as one failed sync instead of stalling everything after it.
-const FETCH_TIMEOUT_MS = 20000;
+// The import loop processes one bookmark at a time and awaits each request
+// fully, so a single hung request (bad network, a stalled connection,
+// anything) would otherwise block the whole import indefinitely with no way
+// to skip past it — api-client.js's FETCH_TIMEOUT_MS bounds every request
+// made through apiGet/apiPost/apiPatch/apiDelete, so a stuck request just
+// counts as one failed sync instead of stalling everything after it.
 
 const RECENT_ACTIVITY_LIMIT = 20;
 
@@ -340,18 +332,8 @@ browser.omnibox.onInputChanged.addListener(async (text, suggest) => {
     return;
   }
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-
   try {
-    const sessionToken = await getSessionToken();
-    const response = await fetch(`${WORKER_API_URL}/search?q=${encodeURIComponent(query)}`, {
-      headers: { Authorization: `Bearer ${sessionToken}` },
-      signal: controller.signal,
-    });
-    if (!response.ok) return;
-
-    const data = await response.json();
+    const data = await apiGet(`/search?q=${encodeURIComponent(query)}`);
     const results = (data.results || []).slice(0, OMNIBOX_SUGGESTION_LIMIT);
 
     suggest(
@@ -366,8 +348,6 @@ browser.omnibox.onInputChanged.addListener(async (text, suggest) => {
     );
   } catch (err) {
     console.error('[BookmarkSync] Omnibox search failed:', err);
-  } finally {
-    clearTimeout(timeoutId);
   }
 });
 
@@ -420,22 +400,11 @@ async function notifyWhenCategorized(id, label) {
 }
 
 async function fetchBookmarkById(id) {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-
   try {
-    const sessionToken = await getSessionToken();
-    const response = await fetch(`${WORKER_API_URL}/bookmarks/${id}`, {
-      headers: { Authorization: `Bearer ${sessionToken}` },
-      signal: controller.signal,
-    });
-    if (!response.ok) return null;
-    return await response.json();
+    return await apiGet(`/bookmarks/${id}`);
   } catch (err) {
     console.error('[BookmarkSync] Failed to poll bookmark status:', err);
     return null;
-  } finally {
-    clearTimeout(timeoutId);
   }
 }
 
@@ -547,20 +516,7 @@ async function runImport(entries) {
 // so a network hiccup here just falls back to the old always-sync behavior.
 async function fetchExistingCategoriesByUrl() {
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-    let response;
-    try {
-      const sessionToken = await getSessionToken();
-      response = await fetch(`${WORKER_API_URL}/bookmarks/url-categories`, {
-        headers: { Authorization: `Bearer ${sessionToken}` },
-        signal: controller.signal,
-      });
-    } finally {
-      clearTimeout(timeoutId);
-    }
-    if (!response.ok) return {};
-    const data = await response.json();
+    const data = await apiGet('/bookmarks/url-categories');
     return data.categories || {};
   } catch (err) {
     console.error('[BookmarkSync] Failed to fetch existing categories, importing everything:', err);
@@ -618,9 +574,11 @@ function getTopLevelContainerIds() {
 // Where a Library-initiated native create/move lands when it has no category
 // (or one whose leading segment doesn't yet exist as a folder). There's no
 // WebExtensions API for "give me the unfiled/other-bookmarks container" —
-// Firefox's has a stable id across profiles, Chrome/Edge's don't (they're
-// just small integers), so this falls back to matching the title Chrome/Edge
-// use by convention, and finally to whichever top-level container is first.
+// Firefox's has a stable id across browser installs (not to be confused with
+// a Library Profile — this is the OS-level "which Firefox user account"
+// concept), Chrome/Edge's don't (they're just small integers), so this falls
+// back to matching the title Chrome/Edge use by convention, and finally to
+// whichever top-level container is first.
 async function getDefaultParentId() {
   const containers = await getTopLevelContainers();
   const firefoxOther = containers.find((c) => c.id === 'unfiled_____');
@@ -630,28 +588,85 @@ async function getDefaultParentId() {
   return containers[0]?.id;
 }
 
+function findChildFolder(children, title) {
+  return children.find((child) => !child.url && child.title === title) || null;
+}
+
+// Each Library Profile ("Personal", "Work", ...) gets its own top-level
+// native folder directly under the browser's real default container, so two
+// profiles' category trees never collide even if they happen to use the
+// same category names. Memoized by name as a Promise (not a resolved id),
+// same rationale as topLevelContainersPromise above — concurrent native
+// writes for the same profile must never race into creating the folder
+// twice. Not invalidated on profile rename: this deliberately does NOT
+// rename the native folder to match (see writeNativeCreate's doc comment on
+// why native bookmarks predating a change are left alone) — a renamed
+// profile keeps mirroring into its original-named native folder.
+const profileRootFolderIds = new Map();
+
+function getProfileRootFolderId(profileName) {
+  if (!profileRootFolderIds.has(profileName)) {
+    profileRootFolderIds.set(
+      profileName,
+      (async () => {
+        const parentId = await getDefaultParentId();
+        const existing = findChildFolder(await browser.bookmarks.getChildren(parentId), profileName);
+        return existing ? existing.id : (await browser.bookmarks.create({ parentId, title: profileName })).id;
+      })()
+    );
+  }
+  return profileRootFolderIds.get(profileName);
+}
+
+// Read-only counterpart to getProfileRootFolderId above — never creates the
+// folder. Used by resolveCategoryPath and the writeNative*'s cross-profile
+// existence check below, both of which run for every native bookmark event
+// (including ones with nothing to do with this extension) and must not have
+// the side effect of conjuring a profile's folder into existence just from
+// looking at an unrelated bookmark.
+async function findProfileRootFolderId(profileName) {
+  const parentId = await getDefaultParentId();
+  const existing = findChildFolder(await browser.bookmarks.getChildren(parentId), profileName);
+  return existing?.id ?? null;
+}
+
 // Finds (or creates) the folder chain a "Dev Tools/AI APIs"-style category
-// path maps to, returning the deepest folder's id. Mirrors the inverse of
-// resolveCategoryPath above.
+// path maps to, rooted under the currently active Library Profile's own
+// native folder, returning the deepest folder's id. Mirrors the inverse of
+// resolveCategoryPath below. Falls back to the browser's plain default
+// container when no active profile is known yet (e.g. the very first popup/
+// library load before resolveActiveProfile() has ever run) — same
+// no-profile-info-yet safety net as api-client.js omitting X-Profile-Id.
 async function resolveOrCreateFolderId(categoryPath) {
-  let parentId = await getDefaultParentId();
+  const activeProfile = await getActiveProfile();
+  let parentId = activeProfile ? await getProfileRootFolderId(activeProfile.name) : await getDefaultParentId();
   if (!categoryPath) return parentId;
 
   for (const segment of categoryPath.split('/').filter(Boolean)) {
     const children = await browser.bookmarks.getChildren(parentId);
-    const existing = children.find((child) => !child.url && child.title === segment);
+    const existing = findChildFolder(children, segment);
     parentId = existing ? existing.id : (await browser.bookmarks.create({ parentId, title: segment })).id;
   }
 
   return parentId;
 }
 
+// Derives a category path by walking up from a native bookmark's parent
+// folder, stopping at (not including) either one of the browser's built-in
+// top-level containers OR the active Library Profile's own root folder —
+// without that second stopping point, a bookmark nested under
+// "Personal/Dev Tools/AI" would derive the category "Personal/Dev Tools/AI"
+// instead of "Dev Tools/AI", double-counting the profile folder our own
+// mirroring created. Uses the non-creating findProfileRootFolderId since
+// this runs passively for every native bookmark event.
 async function resolveCategoryPath(parentId) {
   const containerIds = await getTopLevelContainerIds();
+  const activeProfile = await getActiveProfile();
+  const profileRootId = activeProfile ? await findProfileRootFolderId(activeProfile.name) : null;
   const segments = [];
   let currentId = parentId;
 
-  while (currentId && !containerIds.has(currentId)) {
+  while (currentId && !containerIds.has(currentId) && currentId !== profileRootId) {
     const [node] = await browser.bookmarks.get(currentId).catch(() => [null]);
     if (!node) break;
     segments.unshift(node.title);
@@ -659,6 +674,31 @@ async function resolveCategoryPath(parentId) {
   }
 
   return segments.length ? segments.join('/') : null;
+}
+
+// Filters a browser.bookmarks.search({url}) result down to nodes actually
+// nested under `folderId` — used by writeNativeCreate/Update/Delete below so
+// a URL mirrored under one Library Profile's native folder is never mistaken
+// for (or accidentally edited/deleted alongside) the same URL mirrored under
+// a DIFFERENT profile's folder. `folderId` of null (the profile's native
+// folder doesn't exist yet) correctly yields no matches — nothing could be
+// nested under a folder that was never created.
+async function filterNodesUnderFolder(nodes, folderId) {
+  if (!folderId) return [];
+
+  const kept = [];
+  for (const node of nodes) {
+    let currentId = node.id;
+    while (currentId) {
+      if (currentId === folderId) {
+        kept.push(node);
+        break;
+      }
+      const [parent] = await browser.bookmarks.get(currentId).catch(() => [null]);
+      currentId = parent?.parentId;
+    }
+  }
+  return kept;
 }
 
 function sleep(ms) {
@@ -783,11 +823,24 @@ function queueNativeWrite(task) {
   return nativeWriteQueue;
 }
 
-// Mirrors a Library "Add". If this url is already natively bookmarked here
-// (e.g. added from the Library once before, or bookmarked in this browser
-// separately), realigns that instead of creating a duplicate.
+// Every writeNative* below only ever acts on the active Library Profile's
+// own native folder subtree — a plain browser.bookmarks.search({url}) finds
+// a URL anywhere in the whole native tree, which would misfire once two
+// profiles can each mirror the same URL into their own separate folder
+// (mistaking one profile's copy for "this profile already has it", or
+// editing/deleting every profile's copy instead of just the active one's).
+async function searchWithinActiveProfile(url) {
+  const activeProfile = await getActiveProfile();
+  const profileRootId = activeProfile ? await findProfileRootFolderId(activeProfile.name) : null;
+  return filterNodesUnderFolder(await browser.bookmarks.search({ url }), profileRootId);
+}
+
+// Mirrors a Library "Add". If this url is already natively bookmarked here,
+// within the active profile's own folder (e.g. added from the Library once
+// before, or bookmarked in this browser separately), realigns that instead
+// of creating a duplicate.
 async function writeNativeCreate(url, title, category) {
-  const existing = await browser.bookmarks.search({ url });
+  const existing = await searchWithinActiveProfile(url);
   if (existing.length > 0) {
     await writeNativeUpdate(url, title, category);
     return;
@@ -799,10 +852,12 @@ async function writeNativeCreate(url, title, category) {
 }
 
 // Mirrors a Library title/category edit. Only touches a native bookmark
-// that already exists for this url — a Library-only bookmark stays
-// Library-only until something explicitly Adds it natively.
+// that already exists for this url within the active profile's own folder —
+// a Library-only bookmark stays Library-only until something explicitly
+// Adds it natively, and a different profile's native copy of the same URL
+// is left untouched.
 async function writeNativeUpdate(url, title, category) {
-  const nodes = await browser.bookmarks.search({ url });
+  const nodes = await searchWithinActiveProfile(url);
   if (nodes.length === 0) return;
 
   const parentId = await resolveOrCreateFolderId(category);
@@ -822,10 +877,11 @@ async function writeNativeUpdate(url, title, category) {
   }
 }
 
-// Mirrors a Library delete — removes every native bookmark for this url in
-// this browser, if any.
+// Mirrors a Library delete — removes every native bookmark for this url
+// within the active profile's own folder in this browser, if any. A
+// different profile's native copy of the same URL is left untouched.
 async function writeNativeDelete(url) {
-  const nodes = await browser.bookmarks.search({ url });
+  const nodes = await searchWithinActiveProfile(url);
   for (const node of nodes) {
     markSelfWrite(url);
     await browser.bookmarks.remove(node.id);
@@ -888,46 +944,28 @@ async function attemptSync(url, title, categoryPath) {
     }
   }
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-
-  let response;
+  let data;
   try {
-    try {
-      response = await fetch(`${WORKER_API_URL}/bookmarks`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${sessionToken}`,
-        },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
-    } finally {
-      clearTimeout(timeoutId);
-    }
+    data = await apiPost('/bookmarks', body);
   } catch (err) {
-    // Network failure, Worker unreachable, timeout (AbortError), etc. —
-    // exactly the "internet isn't working" case, distinct from a real
-    // rejection below.
-    console.error('[BookmarkSync] Failed to reach Worker:', err);
-    return { synced: false, retryable: true };
-  }
+    if (err.status === undefined) {
+      // Network failure, Worker unreachable, timeout, etc. — exactly the
+      // "internet isn't working" case, distinct from a real rejection below.
+      console.error('[BookmarkSync] Failed to reach Worker:', err);
+      return { synced: false, retryable: true };
+    }
 
-  if (response.status === 401) {
-    // Session expired/invalid server-side — same fix as not being logged in
-    // at all: retry once there's a valid session again.
-    return { synced: false, retryable: true };
-  }
+    if (err.status === 401) {
+      // Session expired/invalid server-side — same fix as not being logged
+      // in at all: retry once there's a valid session again.
+      return { synced: false, retryable: true };
+    }
 
-  if (!response.ok) {
-    const errorBody = await response.text().catch(() => '');
-    console.error(`[BookmarkSync] Worker responded ${response.status}: ${errorBody}`);
+    console.error(`[BookmarkSync] Worker responded ${err.status}: ${err.message}`);
     await recordActivity({ url, title, category: categoryPath, status: 'failed' });
     return { synced: false, retryable: false };
   }
 
-  const data = await response.json();
   console.log('[BookmarkSync] Synced bookmark:', data);
   await recordActivity({ url, title: title || url, category: categoryPath, status: 'synced' });
   // A dedupe hit (existing bookmark, response includes `message`) never
@@ -1017,56 +1055,22 @@ async function flushPendingBookmarks() {
 // there's nothing to patch either way.
 async function patchBookmark(url, fields) {
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-
-    let response;
-    try {
-      const sessionToken = await getSessionToken();
-      response = await fetch(`${WORKER_API_URL}/bookmarks?url=${encodeURIComponent(url)}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${sessionToken}`,
-        },
-        body: JSON.stringify(fields),
-        signal: controller.signal,
-      });
-    } finally {
-      clearTimeout(timeoutId);
-    }
-
-    if (!response.ok && response.status !== 404) {
-      console.error(`[BookmarkSync] Patch failed for ${url}: ${response.status}`);
-    }
+    await apiPatch(`/bookmarks?url=${encodeURIComponent(url)}`, fields);
   } catch (err) {
-    console.error('[BookmarkSync] Failed to patch bookmark:', err);
+    if (err.status !== 404) {
+      console.error(`[BookmarkSync] Patch failed for ${url}: ${err.status ?? err.message}`);
+    }
   }
 }
 
 // Used by onRemoved. Same 404-is-fine reasoning as patchBookmark above.
 async function deleteBookmark(url) {
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-
-    let response;
-    try {
-      const sessionToken = await getSessionToken();
-      response = await fetch(`${WORKER_API_URL}/bookmarks?url=${encodeURIComponent(url)}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${sessionToken}` },
-        signal: controller.signal,
-      });
-    } finally {
-      clearTimeout(timeoutId);
-    }
-
-    if (!response.ok && response.status !== 404) {
-      console.error(`[BookmarkSync] Delete failed for ${url}: ${response.status}`);
-    }
+    await apiDelete(`/bookmarks?url=${encodeURIComponent(url)}`);
   } catch (err) {
-    console.error('[BookmarkSync] Failed to delete bookmark:', err);
+    if (err.status !== 404) {
+      console.error(`[BookmarkSync] Delete failed for ${url}: ${err.status ?? err.message}`);
+    }
   }
 }
 

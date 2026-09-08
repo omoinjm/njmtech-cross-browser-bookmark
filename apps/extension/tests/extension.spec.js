@@ -403,6 +403,13 @@ test('adding via the Library creates a native bookmark, and deleting removes it'
   // may not have landed the instant the Library UI updates — poll for it.
   await expect.poll(searchTestUrl, { timeout: 5000 }).toHaveLength(1);
 
+  // Lands inside a "Personal" native folder (fixtures.js's seeded
+  // activeProfile), not directly under Other Bookmarks — see background.js's
+  // getProfileRootFolderId/resolveOrCreateFolderId.
+  const [nativeNode] = await searchTestUrl();
+  const [parentFolder] = await page.evaluate((id) => browser.bookmarks.get(id), nativeNode.parentId);
+  expect(parentFolder.title).toBe('Personal');
+
   await page.click('.bookmark-card .btn-danger');
   await expect(page.locator('#empty-state')).toBeVisible();
   await expect.poll(searchTestUrl, { timeout: 5000 }).toHaveLength(0);
@@ -599,6 +606,115 @@ test('a capture made while logged out is queued, then flushed automatically on l
     .toBe(0);
 
   expect(posted).toEqual([{ url: 'https://example.com/offline-test', title: 'Offline Test', category: 'Test Category' }]);
+});
+
+test('library page profile switcher lists profiles and switching sends X-Profile-Id', async ({ context, extensionId }) => {
+  const page = await context.newPage();
+  const errors = collectErrors(page);
+
+  const profiles = [
+    { id: 1, name: 'Personal' },
+    { id: 2, name: 'Work' },
+  ];
+  const bookmarksByProfile = {
+    1: [{ id: 1, url: 'https://example.com/personal', title: 'Personal Bookmark', category: null, tags: [], status: 'processed' }],
+    2: [{ id: 2, url: 'https://example.com/work', title: 'Work Bookmark', category: null, tags: [], status: 'processed' }],
+  };
+  const bookmarkRequestProfileIds = [];
+
+  await page.route('https://example.invalid/api/v1/**', (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const json = (status, body) =>
+      route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
+
+    if (url.pathname.endsWith('/profiles')) return json(200, { profiles });
+    if (url.pathname.endsWith('/categories')) return json(200, { categories: [] });
+    if (url.pathname.endsWith('/tags')) return json(200, { tags: [] });
+    if (url.pathname.endsWith('/bookmarks')) {
+      const profileId = request.headers()['x-profile-id'];
+      bookmarkRequestProfileIds.push(profileId);
+      return json(200, { bookmarks: bookmarksByProfile[profileId] || [] });
+    }
+    return json(200, {});
+  });
+
+  // Starts with no activeProfile stored — exercises resolveActiveProfile()
+  // falling back to the first (oldest) profile in the fetched list, exactly
+  // as it would for a brand-new install that's never picked one yet.
+  await page.addInitScript(() => chrome.storage.local.remove('activeProfile'));
+
+  await page.goto(`chrome-extension://${extensionId}/library.html`);
+
+  await expect(page.locator('#profile-select option')).toHaveText(['Personal', 'Work', '+ New profile']);
+  await expect(page.locator('#profile-select')).toHaveValue('1');
+  await expect(page.locator('.bookmark-card .title')).toHaveText('Personal Bookmark');
+  expect(bookmarkRequestProfileIds.at(-1)).toBe('1');
+
+  const storedActiveProfile = await page.evaluate(
+    () => new Promise((resolve) => chrome.storage.local.get('activeProfile', (r) => resolve(r.activeProfile)))
+  );
+  expect(storedActiveProfile).toEqual({ id: 1, name: 'Personal' });
+
+  await page.selectOption('#profile-select', '2');
+  await expect(page.locator('.bookmark-card .title')).toHaveText('Work Bookmark');
+  expect(bookmarkRequestProfileIds.at(-1)).toBe('2');
+
+  const switchedActiveProfile = await page.evaluate(
+    () => new Promise((resolve) => chrome.storage.local.get('activeProfile', (r) => resolve(r.activeProfile)))
+  );
+  expect(switchedActiveProfile).toEqual({ id: 2, name: 'Work' });
+
+  expect(errors, `console/page errors: ${errors.join('; ')}`).toEqual([]);
+});
+
+test('library page can create a new profile and it becomes active', async ({ context, extensionId }) => {
+  const page = await context.newPage();
+  const errors = collectErrors(page);
+
+  let profiles = [{ id: 1, name: 'Personal' }];
+  let createdProfileBody = null;
+
+  await page.route('https://example.invalid/api/v1/**', (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const method = request.method();
+    const json = (status, body) =>
+      route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
+
+    if (url.pathname.endsWith('/profiles') && method === 'GET') return json(200, { profiles });
+    if (url.pathname.endsWith('/profiles') && method === 'POST') {
+      createdProfileBody = request.postDataJSON();
+      const created = { id: 2, name: createdProfileBody.name };
+      profiles = [...profiles, created];
+      return json(201, { profile: created });
+    }
+    if (url.pathname.endsWith('/categories')) return json(200, { categories: [] });
+    if (url.pathname.endsWith('/tags')) return json(200, { tags: [] });
+    if (url.pathname.endsWith('/bookmarks')) return json(200, { bookmarks: [] });
+    return json(200, {});
+  });
+
+  await page.goto(`chrome-extension://${extensionId}/library.html`);
+  await expect(page.locator('#profile-select option')).toHaveText(['Personal', '+ New profile']);
+
+  await page.selectOption('#profile-select', '__new__');
+  await expect(page.locator('#new-profile-form')).toBeVisible();
+
+  await page.fill('#new-profile-name', 'Work');
+  await page.click('#new-profile-form button[type="submit"]');
+
+  expect(createdProfileBody).toEqual({ name: 'Work' });
+  await expect(page.locator('#new-profile-form')).toBeHidden();
+  await expect(page.locator('#profile-select option')).toHaveText(['Personal', 'Work', '+ New profile']);
+  await expect(page.locator('#profile-select')).toHaveValue('2');
+
+  const storedActiveProfile = await page.evaluate(
+    () => new Promise((resolve) => chrome.storage.local.get('activeProfile', (r) => resolve(r.activeProfile)))
+  );
+  expect(storedActiveProfile).toEqual({ id: 2, name: 'Work' });
+
+  expect(errors, `console/page errors: ${errors.join('; ')}`).toEqual([]);
 });
 
 test('manifest keeps both Chrome/Edge and Firefox background entry points', async () => {

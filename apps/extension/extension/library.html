@@ -9,6 +9,14 @@
   <body>
     <header>
       <h1>Azi Library</h1>
+      <div id="profile-switcher">
+        <select id="profile-select" aria-label="Active profile"></select>
+        <form id="new-profile-form" hidden>
+          <input id="new-profile-name" type="text" placeholder="e.g. Work" autocomplete="off" required />
+          <button type="submit">Create</button>
+          <button type="button" id="new-profile-cancel-btn">Cancel</button>
+        </form>
+      </div>
       <input id="search-input" type="search" placeholder="Search bookmarks…" autocomplete="off" />
       <label class="ai-toggle" title="Semantic search — finds bookmarks by meaning, not just matching words">
         <input id="semantic-search-toggle" class="ai-toggle-input" type="checkbox" />
@@ -79,6 +87,7 @@
 
     <script src="browser-polyfill.js"></script>
     <script src="config.js"></script>
+    <script src="api-client.js"></script>
     <script src="library.js"></script>
   </body>
 </html>

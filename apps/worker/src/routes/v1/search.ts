@@ -1,11 +1,13 @@
 import { Hono, type Context } from 'hono';
 import type { AppEnv } from '../../http-context';
 import { requireSession } from '../../middleware/require-session';
+import { requireProfile } from '../../middleware/require-profile';
 import { buildFtsMatchQuery, widenFtsMatchQuery, safeParseTags } from '../../lib/validation';
 
 export const search = new Hono<AppEnv>();
 
 search.use('*', requireSession);
+search.use('*', requireProfile);
 
 const SEMANTIC_TOP_K = 20;
 // Cosine similarity range is [-1, 1] (1 = identical meaning). Below this,
@@ -56,14 +58,18 @@ search.get('/', async (c) => {
   }
 
   const user = c.get('user');
+  const profile = c.get('profile');
   const { repository, searchQueryExpander } = c.get('deps');
 
-  const exactResults = await repository.search(user.id, baseFtsQuery);
+  const exactResults = await repository.search(user.id, profile.id, baseFtsQuery);
   if (exactResults.length > 0) {
     return c.json({ query: q, results: exactResults.map((row) => ({ ...row, tags: safeParseTags(row.tags) })) });
   }
 
-  const [tagCounts, categoryCounts] = await Promise.all([repository.listTags(user.id), repository.listCategories(user.id)]);
+  const [tagCounts, categoryCounts] = await Promise.all([
+    repository.listTags(user.id, profile.id),
+    repository.listCategories(user.id, profile.id),
+  ]);
   const expandedTerms = await searchQueryExpander.expand(
     q,
     tagCounts.map((t) => t.tag),
@@ -74,7 +80,7 @@ search.get('/', async (c) => {
     return c.json({ query: q, results: [] });
   }
 
-  const widenedResults = await repository.search(user.id, widenFtsMatchQuery(baseFtsQuery, expandedTerms));
+  const widenedResults = await repository.search(user.id, profile.id, widenFtsMatchQuery(baseFtsQuery, expandedTerms));
   const parsed = widenedResults.map((row) => ({ ...row, tags: safeParseTags(row.tags) }));
 
   return c.json({ query: q, expandedTerms, results: parsed });
@@ -82,10 +88,11 @@ search.get('/', async (c) => {
 
 async function handleSemanticSearch(c: Context<AppEnv>, q: string) {
   const user = c.get('user');
+  const profile = c.get('profile');
   const { repository, embeddingGenerator, semanticIndex } = c.get('deps');
 
   const vector = await embeddingGenerator.embed(q);
-  const matches = (await semanticIndex.query(vector, user.id, SEMANTIC_TOP_K)).filter(
+  const matches = (await semanticIndex.query(vector, user.id, profile.id, SEMANTIC_TOP_K)).filter(
     (m) => m.score >= SEMANTIC_MIN_SCORE
   );
 
@@ -93,7 +100,7 @@ async function handleSemanticSearch(c: Context<AppEnv>, q: string) {
     return c.json({ query: q, results: [] });
   }
 
-  const rows = await repository.listBookmarksByIds(user.id, matches.map((m) => m.id));
+  const rows = await repository.listBookmarksByIds(user.id, profile.id, matches.map((m) => m.id));
   const rowsById = new Map(rows.map((row) => [row.id, row]));
 
   // Preserve Vectorize's own relevance ordering — listBookmarksByIds doesn't

@@ -31,7 +31,7 @@ export class BookmarkIngestionPipeline {
     private readonly semanticIndex: SemanticIndex
   ) {}
 
-  async process(userId: number, id: number, url: string, options: ProcessOptions): Promise<void> {
+  async process(userId: number, profileId: number, id: number, url: string, options: ProcessOptions): Promise<void> {
     try {
       const { title, bodyText } = await this.scraper.scrape(url);
       const tags = await this.tagger.generateTags(title, bodyText);
@@ -40,10 +40,10 @@ export class BookmarkIngestionPipeline {
       await this.repository.markProcessed(id, resolvedTitle, bodyText, tags);
 
       if (options.suggestCategory) {
-        await this.applyCategorySuggestion(userId, id, title, bodyText);
+        await this.applyCategorySuggestion(userId, profileId, id, title, bodyText);
       }
 
-      await this.indexForSemanticSearch(userId, id, resolvedTitle, bodyText);
+      await this.indexForSemanticSearch(userId, profileId, id, resolvedTitle, bodyText);
     } catch (err) {
       console.error(`[BookmarkIngestionPipeline] failed for bookmark ${id} (${url}):`, err);
       await this.repository.markFailed(id);
@@ -57,11 +57,11 @@ export class BookmarkIngestionPipeline {
    * already on the row; no re-scrape. Called from bookmarks.ts's dedupe path
    * when a re-synced bookmark already exists but still has no category.
    */
-  async categorizeExisting(userId: number, id: number): Promise<void> {
-    const bookmark = await this.repository.findById(userId, id);
+  async categorizeExisting(userId: number, profileId: number, id: number): Promise<void> {
+    const bookmark = await this.repository.findById(userId, profileId, id);
     if (!bookmark || bookmark.category) return;
 
-    await this.applyCategorySuggestion(userId, id, bookmark.title ?? '', bookmark.body_text ?? '');
+    await this.applyCategorySuggestion(userId, profileId, id, bookmark.title ?? '', bookmark.body_text ?? '');
   }
 
   /**
@@ -74,18 +74,18 @@ export class BookmarkIngestionPipeline {
    * alongside categorizeExisting above, instead of waiting on the periodic
    * cron trigger (see services/embedding-backfill.ts) to eventually catch it.
    */
-  async embedExisting(userId: number, id: number): Promise<void> {
-    const bookmark = await this.repository.findById(userId, id);
+  async embedExisting(userId: number, profileId: number, id: number): Promise<void> {
+    const bookmark = await this.repository.findById(userId, profileId, id);
     // Only a fully-scraped row has the title/body text an embedding needs —
     // still-pending or failed ones aren't ready yet, same as
     // listUnembeddedProcessed's WHERE clause.
     if (!bookmark || bookmark.embedded_at || bookmark.status !== 'processed') return;
 
-    await this.indexForSemanticSearch(userId, id, bookmark.title ?? '', bookmark.body_text ?? '');
+    await this.indexForSemanticSearch(userId, profileId, id, bookmark.title ?? '', bookmark.body_text ?? '');
   }
 
-  private async applyCategorySuggestion(userId: number, id: number, title: string, bodyText: string): Promise<void> {
-    const existingCategories = (await this.repository.listCategories(userId)).map((c) => c.category);
+  private async applyCategorySuggestion(userId: number, profileId: number, id: number, title: string, bodyText: string): Promise<void> {
+    const existingCategories = (await this.repository.listCategories(userId, profileId)).map((c) => c.category);
     const suggestion = await this.categoryClassifier.classify(title, bodyText, existingCategories);
     if (suggestion) {
       await this.repository.updateCategory(id, suggestion);
@@ -96,10 +96,10 @@ export class BookmarkIngestionPipeline {
   // bookmark is still fully usable via keyword search either way. Also used
   // by the /admin/backfill-embeddings route for anything created before
   // this existed (see that route for why embedded_at makes this idempotent).
-  private async indexForSemanticSearch(userId: number, id: number, title: string, bodyText: string): Promise<void> {
+  private async indexForSemanticSearch(userId: number, profileId: number, id: number, title: string, bodyText: string): Promise<void> {
     try {
       const vector = await this.embeddingGenerator.embed(buildEmbeddingInput(title, bodyText));
-      await this.semanticIndex.upsert(id, userId, vector);
+      await this.semanticIndex.upsert(id, userId, profileId, vector);
       await this.repository.markEmbedded(id);
     } catch (err) {
       console.error(`[BookmarkIngestionPipeline] embedding failed for bookmark ${id}:`, err);

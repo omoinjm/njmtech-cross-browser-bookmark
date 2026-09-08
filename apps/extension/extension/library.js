@@ -20,6 +20,10 @@ const categoryOptionsEl = document.getElementById('category-options');
 const exportBtn = document.getElementById('export-btn');
 const importFileBtn = document.getElementById('import-file-btn');
 const importFileInput = document.getElementById('import-file-input');
+const profileSelectEl = document.getElementById('profile-select');
+const newProfileFormEl = document.getElementById('new-profile-form');
+const newProfileNameInput = document.getElementById('new-profile-name');
+const newProfileCancelBtn = document.getElementById('new-profile-cancel-btn');
 
 const PAGE_SIZE = 50;
 
@@ -168,11 +172,103 @@ function renderImportBanner(state) {
   }
 }
 
+// --- Profiles ---
+//
+// A Profile ("Personal", "Work", or any name the user picks) is a fully
+// siloed partition of bookmarks/categories/tags/search — see
+// require-profile.ts server-side. Exactly one is active at a time, stored
+// as {id, name} in browser.storage.local's `activeProfile` (read by
+// api-client.js's apiRequest to attach X-Profile-Id to every profile-scoped
+// call). Unlike the popup, this page has no login gate of its own (see
+// notes elsewhere on library.js's requests just failing quietly if logged
+// out) — the switcher just tries to load and stays empty on failure, same
+// as loadCategories/loadTags below.
+
+const NEW_PROFILE_OPTION_VALUE = '__new__';
+
+async function loadProfileSwitcher() {
+  try {
+    const [data, active] = await Promise.all([apiGet('/profiles'), resolveActiveProfile()]);
+    renderProfileOptions(data.profiles || [], active?.id);
+  } catch (err) {
+    console.error('[Library] Failed to load profiles:', err);
+  }
+}
+
+function renderProfileOptions(profiles, activeId) {
+  profileSelectEl.innerHTML = '';
+
+  for (const profile of profiles) {
+    const option = document.createElement('option');
+    option.value = String(profile.id);
+    option.textContent = profile.name;
+    profileSelectEl.appendChild(option);
+  }
+
+  const newOption = document.createElement('option');
+  newOption.value = NEW_PROFILE_OPTION_VALUE;
+  newOption.textContent = '+ New profile';
+  profileSelectEl.appendChild(newOption);
+
+  if (activeId) profileSelectEl.value = String(activeId);
+}
+
+profileSelectEl.addEventListener('change', async () => {
+  if (profileSelectEl.value === NEW_PROFILE_OPTION_VALUE) {
+    newProfileFormEl.hidden = false;
+    newProfileNameInput.focus();
+    return;
+  }
+
+  const profileId = Number(profileSelectEl.value);
+  const name = profileSelectEl.selectedOptions[0].textContent;
+  await browser.storage.local.set({ activeProfile: { id: profileId, name } });
+});
+
+newProfileCancelBtn.addEventListener('click', () => {
+  newProfileFormEl.hidden = true;
+  newProfileFormEl.reset();
+  loadProfileSwitcher();
+});
+
+newProfileFormEl.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const name = newProfileNameInput.value.trim();
+  if (!name) return;
+
+  try {
+    const data = await apiPost('/profiles', { name });
+    await browser.storage.local.set({ activeProfile: { id: data.profile.id, name: data.profile.name } });
+    newProfileFormEl.hidden = true;
+    newProfileFormEl.reset();
+    await loadProfileSwitcher();
+  } catch (err) {
+    console.error('[Library] Failed to create profile:', err);
+    alert(`Failed to create profile: ${err.message}`);
+  }
+});
+
+// Reacts to a profile switch made here OR in the popup (another open page
+// sharing the same storage.local) — reloads every profile-scoped view, same
+// as an add/edit/delete mutation (see refreshAfterMutation), and resets the
+// category/tag filters since they're meaningless carried over from a
+// different profile's category/tag namespace.
+browser.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local' || !changes.activeProfile) return;
+  if (changes.activeProfile.newValue) profileSelectEl.value = String(changes.activeProfile.newValue.id);
+  activeCategory = '';
+  activeTag = '';
+  offset = 0;
+  searchInput.value = '';
+  refreshAfterMutation();
+});
+
 init();
 
 async function init() {
   const { syncState } = await browser.storage.local.get('syncState');
   renderImportBanner(syncState);
+  await loadProfileSwitcher();
   await Promise.all([loadCategories(), loadTags()]);
 
   const params = new URLSearchParams(location.search);
@@ -848,71 +944,8 @@ function appendHighlightedSnippet(container, snippet) {
   }
 }
 
-// Authentication is a per-account session token (obtained via the popup's
-// Account tab logging in), not a static config-file secret — read fresh on
-// every request so a logout/re-login in the popup takes effect immediately.
-async function getSessionToken() {
-  const { sessionToken } = await browser.storage.local.get('sessionToken');
-  return sessionToken || null;
-}
-
-async function apiGet(path) {
-  const sessionToken = await getSessionToken();
-  const response = await fetch(`${WORKER_API_URL}${path}`, {
-    headers: { Authorization: `Bearer ${sessionToken}` },
-  });
-  if (!response.ok) {
-    throw new Error(`Worker responded ${response.status}`);
-  }
-  return response.json();
-}
-
-async function apiPost(path, body) {
-  const sessionToken = await getSessionToken();
-  const response = await fetch(`${WORKER_API_URL}${path}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${sessionToken}`,
-    },
-    body: JSON.stringify(body),
-  });
-  if (!response.ok) {
-    const errorBody = await response.json().catch(() => null);
-    throw new Error(errorBody?.error || `Worker responded ${response.status}`);
-  }
-  return response.json();
-}
-
-async function apiPatch(path, body) {
-  const sessionToken = await getSessionToken();
-  const response = await fetch(`${WORKER_API_URL}${path}`, {
-    method: 'PATCH',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${sessionToken}`,
-    },
-    body: JSON.stringify(body),
-  });
-  if (!response.ok) {
-    const errorBody = await response.json().catch(() => null);
-    throw new Error(errorBody?.error || `Worker responded ${response.status}`);
-  }
-  return response.json();
-}
-
-async function apiDelete(path) {
-  const sessionToken = await getSessionToken();
-  const response = await fetch(`${WORKER_API_URL}${path}`, {
-    method: 'DELETE',
-    headers: { Authorization: `Bearer ${sessionToken}` },
-  });
-  if (!response.ok) {
-    const errorBody = await response.json().catch(() => null);
-    throw new Error(errorBody?.error || `Worker responded ${response.status}`);
-  }
-  return response.json();
-}
+// getSessionToken/apiGet/apiPost/apiPatch/apiDelete/resolveActiveProfile all
+// come from api-client.js (loaded before this file — see library.html).
 
 // Refreshes every view that a bookmark add/edit/delete could have changed
 // (category/tag counts in the sidebar, the datalist, the list itself).
