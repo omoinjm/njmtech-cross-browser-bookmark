@@ -2,7 +2,7 @@ name: Deploy
 
 on:
   push:
-    branches: [main]
+    branches: [main, development]
 
 jobs:
   typecheck:
@@ -55,6 +55,9 @@ jobs:
       - run: npm run lint:firefox
 
   deploy:
+    # Cloudflare deploy stays main-only — development pushes still run
+    # typecheck/build/cross-browser-test above, just never this step.
+    if: github.ref == 'refs/heads/main'
     needs: [cross-browser-test]
     runs-on: ubuntu-latest
     steps:
