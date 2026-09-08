@@ -9,10 +9,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm ci
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
       # Builds the Worker bundle without publishing it (no Cloudflare
       # credentials needed) — catches real bundling failures (bad imports,
       # unresolvable modules) that type-checking alone wouldn't.
@@ -22,20 +24,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm ci
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
       - run: npm run typecheck
 
   cross-browser-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm ci
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
       # Chrome/Edge: drives the real unpacked extension in Chromium (Edge
       # shares its engine and the manifest key this project uses for it).
       - run: npx playwright install --with-deps chromium
@@ -51,10 +57,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm ci
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
       - uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
