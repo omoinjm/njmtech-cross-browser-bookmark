@@ -18,10 +18,11 @@ on:
       - v*
   workflow_dispatch:
 
-# Shared group name with release-firefox.yml/release-edge.yml — see that
-# file's comment for why (serializes writes to the same GitHub Release).
+# Scoped per-workflow, not shared with release-firefox.yml/release-edge.yml
+# — see release-firefox.yml's comment for why a shared group name across
+# workflow files can silently drop one of the three runs on a tag push.
 concurrency:
-  group: release-${{ github.ref_name }}
+  group: release-chrome-${{ github.ref_name }}
   cancel-in-progress: false
 
 permissions:

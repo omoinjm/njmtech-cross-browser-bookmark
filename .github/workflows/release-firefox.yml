@@ -24,12 +24,15 @@ on:
       - v*
   workflow_dispatch:
 
-# Shared group name with release-chrome.yml/release-edge.yml — GitHub
-# enforces concurrency groups repo-wide across different workflow files, so
-# this serializes all three release-touching jobs for the same tag and
-# avoids a create-vs-create race on the shared GitHub Release.
+# Scoped per-workflow (not shared with release-chrome.yml/release-edge.yml)
+# — GitHub enforces concurrency groups repo-wide across different workflow
+# files, and only lets one run be queued per group: a same-named group
+# across all three files means a second tag push racing in can bump one of
+# the three release runs out of the queue entirely before it ever starts.
+# softprops/action-gh-release already handles concurrent updates to the
+# same release tag safely, so serializing across workflows isn't needed.
 concurrency:
-  group: release-${{ github.ref_name }}
+  group: release-firefox-${{ github.ref_name }}
   cancel-in-progress: false
 
 permissions:
