@@ -17,6 +17,12 @@ binding       = "DB"
 database_name = "bookmarks-db"
 database_id   = "be8c0f80-7417-499a-9c75-8a4a0f3f91b8"
 
+# --- Secrets ---------------------------------------------------------------
+# Add with:
+#   wrangler secret put BOOKMARK_ENCRYPTION_KEY
+# using a base64-encoded 32-byte random key. The Worker uses this to encrypt
+# bookmark source fields at rest and derive deterministic blind indexes.
+
 # --- Workers AI -----------------------------------------------------------
 # No setup needed beyond having Workers AI enabled on the account.
 [ai]

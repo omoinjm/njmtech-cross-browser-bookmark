@@ -39,37 +39,24 @@ export function isPubliclyRoutableUrl(value: string): boolean {
   }
 }
 
-/**
- * Builds a safe FTS5 MATCH expression from free-form user input. Each token
- * is quoted (so raw FTS5 operators like `-`, `"`, `:` in the user's query
- * can't break the syntax or be mistaken for column filters/NOT operators)
- * and suffixed with `*` for prefix matching, then AND-ed together.
- */
-export function buildFtsMatchQuery(input: string): string | null {
-  const tokens = input
-    .split(/\s+/)
-    .map((t) => t.trim())
-    .filter(Boolean);
-
-  if (tokens.length === 0) return null;
-
-  return tokens.map((t) => `"${t.replace(/"/g, '""')}"*`).join(' ');
+/** Extracts normalized keyword-search tokens from free-form user input. */
+export function buildFtsMatchQuery(input: string): string[] {
+  return normalizeSearchTerms(input);
 }
 
 /**
- * Broadens a base FTS5 query with AI-suggested related terms, OR-ed in
- * alongside it — a bookmark matches if it satisfies the original query
- * (unchanged AND semantics between its own words) OR any single expansion
- * term on its own. Same quoting/escaping/prefix-matching as the base query,
- * for the same reason: user- and model-supplied text alike must never be
- * able to inject raw FTS5 syntax.
+ * Broadens a base keyword-search token list with AI-suggested related terms.
+ * The first entry remains the user's original AND-ed token group; each extra
+ * entry is an alternative token group the repository ORs in via its blind
+ * search index.
  */
-export function widenFtsMatchQuery(baseQuery: string, expansionTerms: string[]): string {
-  const terms = expansionTerms.map((t) => t.trim()).filter(Boolean);
-  if (terms.length === 0) return baseQuery;
-
-  const expansionClause = terms.map((t) => `"${t.replace(/"/g, '""')}"*`).join(' OR ');
-  return `(${baseQuery}) OR ${expansionClause}`;
+export function widenFtsMatchQuery(baseQuery: string[], expansionTerms: string[]): string[][] {
+  const groups = [baseQuery].filter((group) => group.length > 0);
+  for (const term of expansionTerms) {
+    const normalized = normalizeSearchTerms(term);
+    if (normalized.length > 0) groups.push(normalized);
+  }
+  return groups;
 }
 
 export function safeParseTags(tags: string | null): string[] {
@@ -79,6 +66,10 @@ export function safeParseTags(tags: string | null): string[] {
     return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
+  }
+
+  function normalizeSearchTerms(input: string): string[] {
+    return (input.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).filter(Boolean);
   }
 }
 

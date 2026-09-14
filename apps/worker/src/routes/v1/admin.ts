@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import type { AppEnv } from '../../http-context';
 import { requireSession } from '../../middleware/require-session';
+import { runBookmarkEncryptionBackfillBatch } from '../../services/bookmark-encryption-backfill';
 import { runEmbeddingBackfillBatch } from '../../services/embedding-backfill';
 
 export const admin = new Hono<AppEnv>();
@@ -22,5 +23,16 @@ admin.use('*', requireSession);
  */
 admin.post('/backfill-embeddings', async (c) => {
   const result = await runEmbeddingBackfillBatch(c.get('deps'));
+  return c.json(result);
+});
+
+/**
+ * POST /api/v1/admin/backfill-bookmark-encryption
+ * Encrypts one batch of legacy plaintext bookmark rows in place, rebuilding
+ * exact-match and search artifacts as it goes. Safe to call repeatedly until
+ * `moreRemaining` is false.
+ */
+admin.post('/backfill-bookmark-encryption', async (c) => {
+  const result = await runBookmarkEncryptionBackfillBatch(c.get('deps'));
   return c.json(result);
 });

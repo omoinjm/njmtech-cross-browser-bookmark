@@ -10,6 +10,7 @@ import { WorkersAiSearchQueryExpander, type SearchQueryExpander } from './servic
 import { WorkersAiEmbeddingGenerator, type EmbeddingGenerator } from './services/embedding-generator';
 import { VectorizeSemanticIndex, type SemanticIndex } from './services/semantic-index';
 import { WebCryptoPasswordHasher, type PasswordHasher } from './services/password-hasher';
+import { WebCryptoBookmarkEncryptionService, type BookmarkEncryptionService } from './services/bookmark-encryption';
 import { TemplateApiEmailSender, type EmailSender } from './services/email-sender';
 import { BookmarkIngestionPipeline } from './services/bookmark-ingestion-pipeline';
 
@@ -23,6 +24,7 @@ import { BookmarkIngestionPipeline } from './services/bookmark-ingestion-pipelin
 export interface Dependencies {
   repository: BookmarkRepository;
   pipeline: BookmarkIngestionPipeline;
+  bookmarkEncryption: BookmarkEncryptionService;
   categoryReorganizer: CategoryReorganizer;
   searchQueryExpander: SearchQueryExpander;
   embeddingGenerator: EmbeddingGenerator;
@@ -34,7 +36,8 @@ export interface Dependencies {
 }
 
 export function buildDependencies(env: Env): Dependencies {
-  const repository: BookmarkRepository = new D1BookmarkRepository(env.DB);
+  const bookmarkEncryption: BookmarkEncryptionService = new WebCryptoBookmarkEncryptionService(env.BOOKMARK_ENCRYPTION_KEY);
+  const repository: BookmarkRepository = new D1BookmarkRepository(env.DB, bookmarkEncryption);
   const scraper: PageScraper = new BrowserRenderingScraper(env.BROWSER);
   const tagger: TagGenerator = new WorkersAiTagGenerator(env.AI);
   const categoryClassifier: CategoryClassifier = new WorkersAiCategoryClassifier(env.AI);
@@ -59,6 +62,7 @@ export function buildDependencies(env: Env): Dependencies {
   return {
     repository,
     pipeline,
+    bookmarkEncryption,
     categoryReorganizer,
     searchQueryExpander,
     embeddingGenerator,

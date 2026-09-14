@@ -6,6 +6,7 @@ import type { Env } from './env';
 import type { AppEnv } from './http-context';
 import { buildDependencies } from './container';
 import { v1 } from './routes/v1';
+import { runBookmarkEncryptionBackfill } from './services/bookmark-encryption-backfill';
 import { runEmbeddingBackfill } from './services/embedding-backfill';
 
 const app = new Hono<AppEnv>();
@@ -52,9 +53,12 @@ export default {
   async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext) {
     const deps = buildDependencies(env);
     ctx.waitUntil(
-      runEmbeddingBackfill(deps).then(
-        (result) => console.log('[scheduled] embedding backfill:', result),
-        (err) => console.error('[scheduled] embedding backfill failed:', err)
+      Promise.all([runBookmarkEncryptionBackfill(deps), runEmbeddingBackfill(deps)]).then(
+        ([encryptionResult, embeddingResult]) => {
+          console.log('[scheduled] bookmark encryption backfill:', encryptionResult);
+          console.log('[scheduled] embedding backfill:', embeddingResult);
+        },
+        (err) => console.error('[scheduled] maintenance failed:', err)
       )
     );
   },

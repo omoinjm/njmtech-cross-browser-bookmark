@@ -51,14 +51,14 @@ search.get('/', async (c) => {
   }
 
   const baseFtsQuery = buildFtsMatchQuery(q);
-  if (!baseFtsQuery) {
+  if (baseFtsQuery.length === 0) {
     return c.json({ results: [] });
   }
 
   const user = c.get('user');
   const { repository, searchQueryExpander } = c.get('deps');
 
-  const exactResults = await repository.search(user.id, baseFtsQuery);
+  const exactResults = await repository.search(user.id, [baseFtsQuery]);
   if (exactResults.length > 0) {
     return c.json({ query: q, results: exactResults.map((row) => ({ ...row, tags: safeParseTags(row.tags) })) });
   }
