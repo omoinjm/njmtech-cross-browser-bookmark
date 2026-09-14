@@ -132,7 +132,7 @@ export class D1BookmarkRepository implements BookmarkRepository {
       .run();
 
     const id = insert.meta.last_row_id;
-    await this.replaceDerivedArtifacts(id, userId, stored.searchDocument, stored.tagLookups);
+    await this.replaceDerivedArtifacts(id, userId, null, stored.searchDocument, stored.tagLookups);
     return id;
   }
 
@@ -256,38 +256,7 @@ export class D1BookmarkRepository implements BookmarkRepository {
       category: bookmark.category,
     });
 
-    await this.db
-      .prepare(
-        `UPDATE bookmarks
-         SET url = NULL,
-             title = NULL,
-             body_text = NULL,
-             tags = NULL,
-             category = NULL,
-             url_encrypted = ?,
-             title_encrypted = ?,
-             body_text_encrypted = ?,
-             tags_encrypted = ?,
-             category_encrypted = ?,
-             url_lookup = ?,
-             category_lookup = ?,
-             status = 'processed',
-             updated_at = datetime('now')
-         WHERE id = ?`
-      )
-      .bind(
-        stored.urlEncrypted,
-        stored.titleEncrypted,
-        stored.bodyTextEncrypted,
-        stored.tagsEncrypted,
-        stored.categoryEncrypted,
-        stored.urlLookup,
-        stored.categoryLookup,
-        id
-      )
-      .run();
-
-    await this.replaceDerivedArtifacts(id, bookmark.user_id!, stored.searchDocument, stored.tagLookups);
+    await this.persistEncryptedBookmark(id, bookmark.user_id!, 'processed', stored, bookmark);
   }
 
   async markFailed(id: number): Promise<void> {
@@ -308,7 +277,7 @@ export class D1BookmarkRepository implements BookmarkRepository {
       category,
     });
 
-    await this.persistEncryptedBookmark(id, bookmark.user_id!, bookmark.status, stored);
+    await this.persistEncryptedBookmark(id, bookmark.user_id!, bookmark.status, stored, bookmark);
   }
 
   async applyReorganization(userId: number, mapping: Array<{ from: string; to: string }>): Promise<void> {
@@ -329,14 +298,21 @@ export class D1BookmarkRepository implements BookmarkRepository {
         tags: safeParseStoredTags(bookmark.tags),
         category: target,
       });
-      await this.persistEncryptedBookmark(bookmark.id, userId, bookmark.status, stored);
+      await this.persistEncryptedBookmark(bookmark.id, userId, bookmark.status, stored, bookmark);
     }
   }
 
   async listForReorg(userId: number, limit: number): Promise<ReorgBookmarkRow[]> {
-    const rows = await this.listAllStoredRowsByUser(userId, limit);
-    const categorized = await Promise.all(rows.map((row) => this.hydrateReorgRow(row)));
-    return categorized.filter((row) => Boolean(row.category));
+    const { results } = await this.db
+      .prepare(
+        `${BASE_SELECT}
+         WHERE user_id = ? AND (category_encrypted IS NOT NULL OR (category IS NOT NULL AND category != ''))
+         ORDER BY created_at DESC
+         LIMIT ?`
+      )
+      .bind(userId, limit)
+      .all<StoredBookmarkRow>();
+    return Promise.all(results.map((row) => this.hydrateReorgRow(row)));
   }
 
   async listByIds(userId: number, ids: number[]): Promise<ReorgBookmarkRow[]> {
@@ -368,7 +344,7 @@ export class D1BookmarkRepository implements BookmarkRepository {
         tags: safeParseStoredTags(bookmark.tags),
         category: move.category,
       });
-      await this.persistEncryptedBookmark(move.id, userId, bookmark.status, stored);
+      await this.persistEncryptedBookmark(move.id, userId, bookmark.status, stored, bookmark);
     }
   }
 
@@ -412,11 +388,15 @@ export class D1BookmarkRepository implements BookmarkRepository {
       category: 'category' in fields ? (fields.category ?? null) : bookmark.category,
     });
 
-    await this.persistEncryptedBookmark(row.id, userId, bookmark.status, stored);
+    await this.persistEncryptedBookmark(row.id, userId, bookmark.status, stored, bookmark);
     return true;
   }
 
   async deleteByUrl(userId: number, url: string): Promise<number | null> {
+    const row = await this.findStoredByUrl(userId, url);
+    if (!row) return null;
+
+    const bookmark = await this.hydrateRow(row);
     const urlLookup = await this.encryption.buildUrlLookup(url);
     const deleted = await this.db
       .prepare(
@@ -429,10 +409,20 @@ export class D1BookmarkRepository implements BookmarkRepository {
 
     if (!deleted) return null;
 
+    const previousSearchDocument = await this.encryption.buildSearchDocument({
+      url: bookmark.url,
+      title: bookmark.title,
+      bodyText: bookmark.body_text,
+      tags: safeParseStoredTags(bookmark.tags),
+      category: bookmark.category,
+    });
+
     await this.db
       .batch([
         this.db.prepare(`DELETE FROM bookmark_tag_lookup WHERE bookmark_id = ?`).bind(deleted.id),
-        this.db.prepare(`DELETE FROM bookmarks_fts WHERE rowid = ?`).bind(deleted.id),
+        this.db
+          .prepare(`INSERT INTO bookmarks_fts (bookmarks_fts, rowid, search_terms) VALUES ('delete', ?, ?)`)
+          .bind(deleted.id, previousSearchDocument),
       ])
       .catch(() => {});
 
@@ -459,7 +449,7 @@ export class D1BookmarkRepository implements BookmarkRepository {
         tags: safeParseStoredTags(bookmark.tags),
         category: bookmark.category,
       });
-      await this.persistEncryptedBookmark(row.id, row.user_id, bookmark.status, stored, bookmark.embedded_at);
+      await this.persistEncryptedBookmark(row.id, row.user_id, bookmark.status, stored, bookmark, bookmark.embedded_at);
     }
 
     return { migrated: results.length, moreRemaining: results.length === limit };
@@ -499,6 +489,7 @@ export class D1BookmarkRepository implements BookmarkRepository {
     userId: number | null,
     status: BookmarkRow['status'],
     stored: Awaited<ReturnType<BookmarkEncryptionService['pack']>>,
+    previous: Pick<BookmarkRow, 'url' | 'title' | 'body_text' | 'tags' | 'category'>,
     embeddedAt?: string | null
   ): Promise<void> {
     await this.db
@@ -536,14 +527,33 @@ export class D1BookmarkRepository implements BookmarkRepository {
       .run();
 
     if (userId != null) {
-      await this.replaceDerivedArtifacts(id, userId, stored.searchDocument, stored.tagLookups);
+      const previousSearchDocument = await this.encryption.buildSearchDocument({
+        url: previous.url,
+        title: previous.title,
+        bodyText: previous.body_text,
+        tags: safeParseStoredTags(previous.tags),
+        category: previous.category,
+      });
+      await this.replaceDerivedArtifacts(id, userId, previousSearchDocument, stored.searchDocument, stored.tagLookups);
     }
   }
 
-  private async replaceDerivedArtifacts(id: number, userId: number, searchDocument: string, tagLookups: string[]): Promise<void> {
+  private async replaceDerivedArtifacts(
+    id: number,
+    userId: number,
+    previousSearchDocument: string | null,
+    searchDocument: string,
+    tagLookups: string[]
+  ): Promise<void> {
     const statements = [
       this.db.prepare(`DELETE FROM bookmark_tag_lookup WHERE bookmark_id = ?`).bind(id),
-      this.db.prepare(`DELETE FROM bookmarks_fts WHERE rowid = ?`).bind(id),
+      ...(previousSearchDocument !== null
+        ? [
+            this.db
+              .prepare(`INSERT INTO bookmarks_fts (bookmarks_fts, rowid, search_terms) VALUES ('delete', ?, ?)`)
+              .bind(id, previousSearchDocument),
+          ]
+        : []),
       this.db.prepare(`INSERT INTO bookmarks_fts (rowid, search_terms) VALUES (?, ?)`).bind(id, searchDocument),
       ...tagLookups.map((tagLookup) =>
         this.db

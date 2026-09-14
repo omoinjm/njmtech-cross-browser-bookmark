@@ -49,7 +49,7 @@ CREATE INDEX idx_sessions_expires_at ON sessions (expires_at);
 -- (from the real folder, or an AI suggestion for unfiled bookmarks) and
 -- never overwritten afterward; tags are (re)written by the tagging pipeline.
 --
--- `UNIQUE (user_id, url)`, not a bare unique url: two different users
+-- `UNIQUE (user_id, url_lookup)`, not a bare unique url: two different users
 -- bookmarking the same URL are two independent rows, each scoped to its own
 -- owner — see BookmarkRepository, where every method takes a userId and
 -- enforces it in its WHERE clause as a hard security boundary, not just a

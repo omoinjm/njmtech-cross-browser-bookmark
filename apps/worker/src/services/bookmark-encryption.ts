@@ -24,6 +24,8 @@ export interface BookmarkEncryptionService {
   buildUrlLookup(url: string): Promise<string>;
   buildCategoryLookup(category: string): Promise<string>;
   buildTagLookup(tag: string): Promise<string>;
+  buildTagLookups(tags: string[]): Promise<string[]>;
+  buildSearchDocument(content: PlainBookmarkContent): Promise<string>;
   buildSearchQuery(termGroups: string[][]): Promise<string | null>;
 }
 
@@ -45,10 +47,10 @@ export class WebCryptoBookmarkEncryptionService implements BookmarkEncryptionSer
       throw new Error('BOOKMARK_ENCRYPTION_KEY must decode to exactly 32 bytes');
     }
 
-    this.encryptionKeyPromise = crypto.subtle.importKey('raw', rawKey, AES_ALGORITHM, false, ['encrypt', 'decrypt']);
+    this.encryptionKeyPromise = crypto.subtle.importKey('raw', toArrayBuffer(rawKey), AES_ALGORITHM, false, ['encrypt', 'decrypt']);
     this.hmacKeyPromise = crypto.subtle.importKey(
       'raw',
-      rawKey,
+      toArrayBuffer(rawKey),
       { name: HMAC_ALGORITHM, hash: HMAC_HASH },
       false,
       ['sign']
@@ -67,7 +69,7 @@ export class WebCryptoBookmarkEncryptionService implements BookmarkEncryptionSer
         content.category ? this.buildCategoryLookup(content.category) : Promise.resolve(null),
       ]);
 
-    const tagLookups = await Promise.all(content.tags.map((tag) => this.buildTagLookup(tag)));
+    const tagLookups = await this.buildTagLookups(content.tags);
     const searchDocument = await this.buildSearchDocument(content);
 
     return {
@@ -93,7 +95,7 @@ export class WebCryptoBookmarkEncryptionService implements BookmarkEncryptionSer
       const iv = base64ToBytes(parts[1]);
       const bytes = base64ToBytes(parts[2]);
       const key = await this.encryptionKeyPromise;
-      const decrypted = await crypto.subtle.decrypt({ name: AES_ALGORITHM, iv }, key, bytes);
+      const decrypted = await crypto.subtle.decrypt({ name: AES_ALGORITHM, iv: toArrayBuffer(iv) }, key, toArrayBuffer(bytes));
       return new TextDecoder().decode(decrypted);
     }
 
@@ -112,6 +114,18 @@ export class WebCryptoBookmarkEncryptionService implements BookmarkEncryptionSer
     return this.lookupToken('tag', normalizeLookupTerm(tag));
   }
 
+  async buildTagLookups(tags: string[]): Promise<string[]> {
+    return dedupe(await Promise.all(tags.map((tag) => this.buildTagLookup(tag))));
+  }
+
+  async buildSearchDocument(content: PlainBookmarkContent): Promise<string> {
+    const terms = collectSearchTerms(content);
+    if (terms.length === 0) return '';
+
+    const hashes = await Promise.all(terms.map((term) => this.lookupToken('search', term)));
+    return hashes.join(' ');
+  }
+
   async buildSearchQuery(termGroups: string[][]): Promise<string | null> {
     const clauses = await Promise.all(
       termGroups
@@ -127,14 +141,6 @@ export class WebCryptoBookmarkEncryptionService implements BookmarkEncryptionSer
     return clauses.join(' OR ');
   }
 
-  private async buildSearchDocument(content: PlainBookmarkContent): Promise<string> {
-    const terms = collectSearchTerms(content);
-    if (terms.length === 0) return '';
-
-    const hashes = await Promise.all(terms.map((term) => this.lookupToken('search', term)));
-    return hashes.join(' ');
-  }
-
   private async encryptNullableField(value: string | null): Promise<string | null> {
     return value ? this.encryptField(value) : null;
   }
@@ -142,7 +148,11 @@ export class WebCryptoBookmarkEncryptionService implements BookmarkEncryptionSer
   private async encryptField(value: string): Promise<string> {
     const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES));
     const key = await this.encryptionKeyPromise;
-    const ciphertext = await crypto.subtle.encrypt({ name: AES_ALGORITHM, iv }, key, new TextEncoder().encode(value));
+    const ciphertext = await crypto.subtle.encrypt(
+      { name: AES_ALGORITHM, iv: toArrayBuffer(iv) },
+      key,
+      new TextEncoder().encode(value)
+    );
     return `${VERSION}:${bytesToBase64(iv)}:${bytesToBase64(new Uint8Array(ciphertext))}`;
   }
 
@@ -198,4 +208,8 @@ function base64ToBytes(base64: string): Uint8Array {
 
 function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 }

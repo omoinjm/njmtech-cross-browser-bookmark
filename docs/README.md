@@ -41,7 +41,7 @@ flowchart TB
 | Component | Location | Role |
 |---|---|---|
 | **Extension** | `apps/extension/extension/` | MV3 add-on for Chrome, Edge, and Firefox. Syncs bookmarks, provides popup, Library UI, and omnibox search. |
-| **Worker API** | `apps/worker/src/` → `wrangler deploy` | Hono app at `/api/v1`. Auth, bookmark CRUD, search, AI tagging/categorization. |
+| **Worker API** | `apps/worker/src/` → `wrangler deploy` | Hono app at `/api/v1`. Auth, bookmark CRUD, encrypted-at-rest storage, search, AI tagging/categorization. |
 | **Marketing site** | `apps/website/` | Static landing page on GitHub Pages. |
 | **Config** | `apps/extension/extension/config.js` (gitignored) | Points extension at `WORKER_API_URL`. Session token stored in `browser.storage.local` after login. |
 
@@ -57,7 +57,7 @@ sequenceDiagram
   participant Pipe as Ingestion pipeline
   participant Scraper as Browser Rendering
   participant TagAI as Workers AI
-  participant DB as D1 + FTS5 + Vectorize
+  participant DB as D1 + blind keyword index + Vectorize
 
   User->>Ext: Save bookmark / Import all
   Ext->>API: POST /bookmarks {url, title, category}
@@ -75,7 +75,7 @@ sequenceDiagram
     Pipe->>TagAI: pick category from existing list
     TagAI-->>Pipe: category suggestion
   end
-  Pipe->>DB: UPDATE processed + FTS sync + embedding
+  Pipe->>DB: encrypt source fields + update blind keyword index + embedding
 ```
 
 ## Worker internals
@@ -197,7 +197,7 @@ flowchart TB
 
 | Where | What |
 |---|---|
-| **Cloudflare** | `API_TOKEN` via `wrangler secret put`; D1, AI, Browser Rendering, Vectorize bindings in `apps/worker/wrangler.toml` |
+| **Cloudflare** | `API_TOKEN` plus `BOOKMARK_ENCRYPTION_KEY` via `wrangler secret put`; D1, AI, Browser Rendering, Vectorize bindings in `apps/worker/wrangler.toml` |
 | **GitHub Actions (Worker)** | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` for Worker deploy (workflow sets `workingDirectory: apps/worker` on the wrangler-action step) |
 | **GitHub Actions (Firefox)** | `AMO_JWT_ISSUER`, `AMO_JWT_SECRET` — API key/secret from [addons.mozilla.org/developers/addon/api/key](https://addons.mozilla.org/developers/addon/api/key/) |
 | **GitHub Actions (Edge)** | `EDGE_CLIENT_ID`, `EDGE_API_KEY` from Partner Center → Microsoft Edge → **Publish API** → Create API credentials; `EDGE_PRODUCT_ID` from the extension's page in Partner Center |

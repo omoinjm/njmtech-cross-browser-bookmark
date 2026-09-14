@@ -67,10 +67,6 @@ export function safeParseTags(tags: string | null): string[] {
   } catch {
     return [];
   }
-
-  function normalizeSearchTerms(input: string): string[] {
-    return (input.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).filter(Boolean);
-  }
 }
 
 /**
@@ -88,4 +84,8 @@ export function sanitizeTagsInput(value: unknown): string[] | null {
     .map((tag) => tag.trim().toLowerCase().slice(0, MAX_TAG_CHARS))
     .filter(Boolean)
     .slice(0, MAX_TAGS_COUNT);
+}
+
+function normalizeSearchTerms(input: string): string[] {
+  return (input.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).filter(Boolean);
 }
