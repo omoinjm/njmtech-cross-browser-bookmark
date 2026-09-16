@@ -37,6 +37,11 @@ CREATE INDEX idx_sessions_expires_at ON sessions (expires_at);
 -- Main table. `status` tracks the async scrape/tag pipeline so the API can
 -- return instantly on POST and let waitUntil() fill in the rest later.
 --
+-- Source bookmark fields are encrypted by the Worker before they land in the
+-- `*_encrypted` columns. The plaintext columns are migration-only fallbacks:
+-- fresh installs keep them NULL, and the encryption backfill route scrubs any
+-- legacy rows that still use them.
+--
 -- `category` vs `tags`: category is a single hierarchical path (e.g.
 -- "Dev Tools/AI APIs") mirroring the user's real browser folder structure —
 -- one bookmark, one category. `tags` is a freeform JSON array from AI
@@ -44,7 +49,7 @@ CREATE INDEX idx_sessions_expires_at ON sessions (expires_at);
 -- (from the real folder, or an AI suggestion for unfiled bookmarks) and
 -- never overwritten afterward; tags are (re)written by the tagging pipeline.
 --
--- `UNIQUE (user_id, url)`, not a bare unique url: two different users
+-- `UNIQUE (user_id, url_lookup)`, not a bare unique url: two different users
 -- bookmarking the same URL are two independent rows, each scoped to its own
 -- owner — see BookmarkRepository, where every method takes a userId and
 -- enforces it in its WHERE clause as a hard security boundary, not just a
@@ -52,11 +57,18 @@ CREATE INDEX idx_sessions_expires_at ON sessions (expires_at);
 CREATE TABLE bookmarks (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id      INTEGER REFERENCES users(id),
-  url          TEXT NOT NULL,
+  url          TEXT,
   title        TEXT,
   body_text    TEXT,
   tags         TEXT,                          -- JSON array, e.g. ["ai","tooling"]
   category     TEXT,                          -- e.g. "Dev Tools/AI APIs & Integrations"
+  url_encrypted TEXT NOT NULL,
+  title_encrypted TEXT,
+  body_text_encrypted TEXT,
+  tags_encrypted TEXT,
+  category_encrypted TEXT,
+  url_lookup   TEXT NOT NULL,                 -- keyed exact-match blind index for dedupe / patch / delete
+  category_lookup TEXT,                       -- keyed exact-match blind index for category filtering
   status       TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'processed', 'failed')),
   created_at   TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at   TEXT NOT NULL DEFAULT (datetime('now')),
@@ -67,44 +79,26 @@ CREATE TABLE bookmarks (
   -- just "has it been done" bookkeeping so a backfill run can skip rows
   -- that already have one.
   embedded_at  TEXT,
-  UNIQUE (user_id, url)
+  UNIQUE (user_id, url_lookup)
 );
 
 CREATE INDEX idx_bookmarks_status ON bookmarks (status);
-CREATE INDEX idx_bookmarks_category ON bookmarks (category);
 CREATE INDEX idx_bookmarks_user_id ON bookmarks (user_id);
+CREATE INDEX idx_bookmarks_category_lookup ON bookmarks (category_lookup);
 
--- FTS5 virtual table using the "external content" pattern: it stores no data
--- of its own, just an inverted index over bookmarks.title/body_text/tags/
--- category, keyed by bookmarks.id via content_rowid. This avoids duplicating
--- the (potentially large) scraped body text a second time on disk.
+-- Fast keyword search uses hashed search terms instead of plaintext copies of
+-- bookmark content. The Worker computes and writes these terms explicitly.
 CREATE VIRTUAL TABLE bookmarks_fts USING fts5(
-  title,
-  body_text,
-  tags,
-  category,
-  content   = 'bookmarks',
-  content_rowid = 'id',
-  tokenize  = 'porter unicode61'
+  search_terms,
+  content = '',
+  tokenize = 'unicode61'
 );
 
--- Keep the FTS index in lockstep with the source table. With external-content
--- tables, SQLite can't auto-populate the index, so every write path needs an
--- explicit trigger — including a matching 'delete' command before any UPDATE
--- so the old row's tokens are removed before the new ones are indexed.
-CREATE TRIGGER bookmarks_ai AFTER INSERT ON bookmarks BEGIN
-  INSERT INTO bookmarks_fts (rowid, title, body_text, tags, category)
-  VALUES (new.id, new.title, new.body_text, new.tags, new.category);
-END;
+CREATE TABLE bookmark_tag_lookup (
+  bookmark_id INTEGER NOT NULL REFERENCES bookmarks(id) ON DELETE CASCADE,
+  user_id     INTEGER NOT NULL REFERENCES users(id),
+  tag_lookup  TEXT NOT NULL,
+  PRIMARY KEY (bookmark_id, tag_lookup)
+);
 
-CREATE TRIGGER bookmarks_ad AFTER DELETE ON bookmarks BEGIN
-  INSERT INTO bookmarks_fts (bookmarks_fts, rowid, title, body_text, tags, category)
-  VALUES ('delete', old.id, old.title, old.body_text, old.tags, old.category);
-END;
-
-CREATE TRIGGER bookmarks_au AFTER UPDATE ON bookmarks BEGIN
-  INSERT INTO bookmarks_fts (bookmarks_fts, rowid, title, body_text, tags, category)
-  VALUES ('delete', old.id, old.title, old.body_text, old.tags, old.category);
-  INSERT INTO bookmarks_fts (rowid, title, body_text, tags, category)
-  VALUES (new.id, new.title, new.body_text, new.tags, new.category);
-END;
+CREATE INDEX idx_bookmark_tag_lookup_user_tag ON bookmark_tag_lookup (user_id, tag_lookup);

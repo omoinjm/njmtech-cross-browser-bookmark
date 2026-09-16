@@ -1,4 +1,5 @@
 import type { BookmarkRow, BookmarkSearchResult, TagCount, CategoryCount, ReorgBookmarkRow } from '../env';
+import type { BookmarkEncryptionService } from '../services/bookmark-encryption';
 
 export interface ListBookmarksOptions {
   tag?: string;
@@ -14,6 +15,28 @@ export interface UpdateBookmarkFields {
   title?: string | null;
   category?: string | null;
   tags?: string[];
+}
+
+interface StoredBookmarkRow {
+  id: number;
+  user_id: number | null;
+  url: string | null;
+  title: string | null;
+  body_text: string | null;
+  tags: string | null;
+  category: string | null;
+  url_encrypted: string | null;
+  title_encrypted: string | null;
+  body_text_encrypted: string | null;
+  tags_encrypted: string | null;
+  category_encrypted: string | null;
+  url_lookup: string | null;
+  category_lookup: string | null;
+  status: BookmarkRow['status'];
+  created_at: string;
+  updated_at: string;
+  embedded_at: string | null;
+  rank?: number;
 }
 
 /**
@@ -37,7 +60,7 @@ export interface BookmarkRepository {
   listTags(userId: number): Promise<TagCount[]>;
   listCategories(userId: number): Promise<CategoryCount[]>;
   listUrlCategories(userId: number): Promise<Array<{ url: string; category: string | null }>>;
-  search(userId: number, ftsMatchQuery: string): Promise<BookmarkSearchResult[]>;
+  search(userId: number, termGroups: string[][]): Promise<BookmarkSearchResult[]>;
   markProcessed(id: number, title: string, bodyText: string, tags: string[]): Promise<void>;
   markFailed(id: number): Promise<void>;
   updateCategory(id: number, category: string): Promise<void>;
@@ -56,134 +79,184 @@ export interface BookmarkRepository {
   updateByUrl(userId: number, url: string, fields: UpdateBookmarkFields): Promise<boolean>;
   /** Returns the deleted bookmark's id (so its embedding can be removed too), or null if this user had no bookmark at this url. */
   deleteByUrl(userId: number, url: string): Promise<number | null>;
+  /** One batch of legacy plaintext rows -> encrypted rows + derived lookup/index artifacts. */
+  backfillEncryption(limit: number): Promise<{ migrated: number; moreRemaining: boolean }>;
 }
 
 export class D1BookmarkRepository implements BookmarkRepository {
-  constructor(private readonly db: D1Database) {}
+  constructor(
+    private readonly db: D1Database,
+    private readonly encryption: BookmarkEncryptionService
+  ) {}
 
   async findByUrl(userId: number, url: string): Promise<Pick<BookmarkRow, 'id' | 'status' | 'category' | 'embedded_at'> | null> {
-    return this.db
-      .prepare('SELECT id, status, category, embedded_at FROM bookmarks WHERE user_id = ? AND url = ?')
-      .bind(userId, url)
-      .first<Pick<BookmarkRow, 'id' | 'status' | 'category' | 'embedded_at'>>();
+    const row = await this.findStoredByUrl(userId, url);
+    if (!row) return null;
+
+    return {
+      id: row.id,
+      status: row.status,
+      category: await this.encryption.decryptField(row.category_encrypted, row.category),
+      embedded_at: row.embedded_at,
+    };
   }
 
   async findById(userId: number, id: number): Promise<BookmarkRow | null> {
-    return this.db.prepare('SELECT * FROM bookmarks WHERE id = ? AND user_id = ?').bind(id, userId).first<BookmarkRow>();
+    const row = await this.db
+      .prepare(`${BASE_SELECT} WHERE id = ? AND user_id = ?`)
+      .bind(id, userId)
+      .first<StoredBookmarkRow>();
+    return row ? this.hydrateRow(row) : null;
   }
 
   async create(userId: number, url: string, initialTitle: string | null, category: string | null): Promise<number> {
+    const stored = await this.encryption.pack({ url, title: initialTitle, bodyText: null, tags: [], category });
     const insert = await this.db
-      .prepare(`INSERT INTO bookmarks (user_id, url, title, category, status) VALUES (?, ?, ?, ?, 'pending')`)
-      .bind(userId, url, initialTitle, category)
+      .prepare(
+        `INSERT INTO bookmarks (
+           user_id, url, title, body_text, tags, category,
+           url_encrypted, title_encrypted, body_text_encrypted, tags_encrypted, category_encrypted,
+           url_lookup, category_lookup, status
+         ) VALUES (?, NULL, NULL, NULL, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, 'pending')`
+      )
+      .bind(
+        userId,
+        stored.urlEncrypted,
+        stored.titleEncrypted,
+        stored.bodyTextEncrypted,
+        stored.tagsEncrypted,
+        stored.categoryEncrypted,
+        stored.urlLookup,
+        stored.categoryLookup
+      )
       .run();
 
-    return insert.meta.last_row_id;
+    const id = insert.meta.last_row_id;
+    await this.replaceDerivedArtifacts(id, userId, null, stored.searchDocument, stored.tagLookups);
+    return id;
   }
 
   async list(userId: number, { tag, category, limit, offset }: ListBookmarksOptions): Promise<BookmarkRow[]> {
     if (tag) {
+      const tagLookup = await this.encryption.buildTagLookup(tag);
       const { results } = await this.db
         .prepare(
-          `SELECT b.id, b.url, b.title, b.body_text, b.tags, b.category, b.status, b.created_at, b.updated_at
-           FROM bookmarks b, json_each(b.tags) je
-           WHERE b.user_id = ? AND je.value = ?
+          `SELECT b.*
+           FROM bookmark_tag_lookup tl
+           JOIN bookmarks b ON b.id = tl.bookmark_id
+           WHERE tl.user_id = ? AND tl.tag_lookup = ?
            ORDER BY b.created_at DESC
            LIMIT ? OFFSET ?`
         )
-        .bind(userId, tag, limit, offset)
-        .all<BookmarkRow>();
-      return results;
+        .bind(userId, tagLookup, limit, offset)
+        .all<StoredBookmarkRow>();
+      return Promise.all(results.map((row) => this.hydrateRow(row)));
     }
 
     if (category) {
+      const categoryLookup = await this.encryption.buildCategoryLookup(category);
       const { results } = await this.db
-        .prepare(`SELECT * FROM bookmarks WHERE user_id = ? AND category = ? ORDER BY created_at DESC LIMIT ? OFFSET ?`)
-        .bind(userId, category, limit, offset)
-        .all<BookmarkRow>();
-      return results;
+        .prepare(
+          `${BASE_SELECT}
+           WHERE user_id = ? AND (category_lookup = ? OR (category_lookup IS NULL AND category = ?))
+           ORDER BY created_at DESC
+           LIMIT ? OFFSET ?`
+        )
+        .bind(userId, categoryLookup, category, limit, offset)
+        .all<StoredBookmarkRow>();
+      return Promise.all(results.map((row) => this.hydrateRow(row)));
     }
 
     const { results } = await this.db
-      .prepare(`SELECT * FROM bookmarks WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?`)
+      .prepare(`${BASE_SELECT} WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?`)
       .bind(userId, limit, offset)
-      .all<BookmarkRow>();
-    return results;
+      .all<StoredBookmarkRow>();
+    return Promise.all(results.map((row) => this.hydrateRow(row)));
   }
 
   async listTags(userId: number): Promise<TagCount[]> {
     const { results } = await this.db
-      .prepare(
-        `SELECT je.value AS tag, COUNT(*) AS count
-         FROM bookmarks b, json_each(b.tags) je
-         WHERE b.user_id = ?
-         GROUP BY je.value
-         ORDER BY count DESC, tag ASC`
-      )
+      .prepare(`SELECT tags, tags_encrypted FROM bookmarks WHERE user_id = ?`)
       .bind(userId)
-      .all<TagCount>();
-    return results;
+      .all<Pick<StoredBookmarkRow, 'tags' | 'tags_encrypted'>>();
+
+    const counts = new Map<string, number>();
+    for (const row of results) {
+      const rawTags = await this.encryption.decryptField(row.tags_encrypted, row.tags);
+      if (!rawTags) continue;
+      for (const tag of safeParseStoredTags(rawTags)) {
+        counts.set(tag, (counts.get(tag) ?? 0) + 1);
+      }
+    }
+
+    return [...counts.entries()]
+      .map(([tag, count]) => ({ tag, count }))
+      .sort((a, b) => (b.count - a.count) || a.tag.localeCompare(b.tag));
   }
 
   async listCategories(userId: number): Promise<CategoryCount[]> {
     const { results } = await this.db
-      .prepare(
-        `SELECT category, COUNT(*) AS count
-         FROM bookmarks
-         WHERE user_id = ? AND category IS NOT NULL AND category != ''
-         GROUP BY category
-         ORDER BY count DESC, category ASC`
-      )
+      .prepare(`SELECT category, category_encrypted FROM bookmarks WHERE user_id = ?`)
       .bind(userId)
-      .all<CategoryCount>();
-    return results;
+      .all<Pick<StoredBookmarkRow, 'category' | 'category_encrypted'>>();
+
+    const counts = new Map<string, number>();
+    for (const row of results) {
+      const category = await this.encryption.decryptField(row.category_encrypted, row.category);
+      if (!category) continue;
+      counts.set(category, (counts.get(category) ?? 0) + 1);
+    }
+
+    return [...counts.entries()]
+      .map(([category, count]) => ({ category, count }))
+      .sort((a, b) => (b.count - a.count) || a.category.localeCompare(b.category));
   }
 
-  // Powers the extension's re-import skip check: it needs every URL's
-  // current stored category up front so it can avoid re-POSTing bookmarks
-  // whose folder-derived category hasn't changed since the last import.
   async listUrlCategories(userId: number): Promise<Array<{ url: string; category: string | null }>> {
     const { results } = await this.db
-      .prepare(`SELECT url, category FROM bookmarks WHERE user_id = ?`)
+      .prepare(`SELECT url, url_encrypted, category, category_encrypted FROM bookmarks WHERE user_id = ?`)
       .bind(userId)
-      .all<{ url: string; category: string | null }>();
-    return results;
+      .all<Pick<StoredBookmarkRow, 'url' | 'url_encrypted' | 'category' | 'category_encrypted'>>();
+
+    return Promise.all(
+      results.map(async (row) => ({
+        url: (await this.encryption.decryptField(row.url_encrypted, row.url)) ?? '',
+        category: await this.encryption.decryptField(row.category_encrypted, row.category),
+      }))
+    );
   }
 
-  async search(userId: number, ftsMatchQuery: string): Promise<BookmarkSearchResult[]> {
-    // Markers are U+0001/U+0002, not literal HTML tags: the snippet's source
-    // text is a scraped page's own visible text (untrusted), so a client
-    // rendering this via innerHTML around literal <b>/</b> would let a
-    // bookmarked page's own text content inject markup. Control characters
-    // can't collide with real page text, and the client splits on them to
-    // build highlight nodes safely instead — see extension/library.js.
+  async search(userId: number, termGroups: string[][]): Promise<BookmarkSearchResult[]> {
+    const blindQuery = await this.encryption.buildSearchQuery(termGroups);
+    if (!blindQuery) return [];
+
     const { results } = await this.db
       .prepare(
-        `SELECT
-           b.id, b.url, b.title, b.tags, b.category, b.status, b.created_at,
-           snippet(bookmarks_fts, 1, char(1), char(2), '…', 20) AS snippet,
-           bm25(bookmarks_fts) AS rank
+        `SELECT b.*, bm25(bookmarks_fts) AS rank
          FROM bookmarks_fts
          JOIN bookmarks b ON b.id = bookmarks_fts.rowid
          WHERE bookmarks_fts MATCH ? AND b.user_id = ?
          ORDER BY rank
          LIMIT 50`
       )
-      .bind(ftsMatchQuery, userId)
-      .all<BookmarkSearchResult>();
+      .bind(blindQuery, userId)
+      .all<StoredBookmarkRow>();
 
-    return results;
+    return Promise.all(results.map((row) => this.hydrateSearchResult(row)));
   }
 
   async markProcessed(id: number, title: string, bodyText: string, tags: string[]): Promise<void> {
-    await this.db
-      .prepare(
-        `UPDATE bookmarks
-         SET title = ?, body_text = ?, tags = ?, status = 'processed', updated_at = datetime('now')
-         WHERE id = ?`
-      )
-      .bind(title, bodyText, JSON.stringify(tags), id)
-      .run();
+    const row = await this.getStoredByIdOrThrow(id);
+    const bookmark = await this.hydrateRow(row);
+    const stored = await this.encryption.pack({
+      url: bookmark.url,
+      title,
+      bodyText,
+      tags,
+      category: bookmark.category,
+    });
+
+    await this.persistEncryptedBookmark(id, bookmark.user_id!, 'processed', stored, bookmark);
   }
 
   async markFailed(id: number): Promise<void> {
@@ -193,46 +266,53 @@ export class D1BookmarkRepository implements BookmarkRepository {
       .run();
   }
 
-  // Called either by the ingestion pipeline's AI category-suggestion step
-  // (for a bookmark with no real folder to derive a category from), or by
-  // the dedupe path in POST /bookmarks when a re-synced bookmark's real
-  // folder-derived category differs from what's currently stored. Both
-  // callers already resolved `id` through an owner-checked path, so no
-  // separate user_id check is needed here.
   async updateCategory(id: number, category: string): Promise<void> {
-    await this.db
-      .prepare(`UPDATE bookmarks SET category = ?, updated_at = datetime('now') WHERE id = ?`)
-      .bind(category, id)
-      .run();
+    const row = await this.getStoredByIdOrThrow(id);
+    const bookmark = await this.hydrateRow(row);
+    const stored = await this.encryption.pack({
+      url: bookmark.url,
+      title: bookmark.title,
+      bodyText: bookmark.body_text,
+      tags: safeParseStoredTags(bookmark.tags),
+      category,
+    });
+
+    await this.persistEncryptedBookmark(id, bookmark.user_id!, bookmark.status, stored, bookmark);
   }
 
-  // One UPDATE per mapping entry, run as a single D1 batch (one round trip,
-  // applied atomically) rather than a loop of awaited individual queries.
-  // The route validates every `from` against the CURRENT category list for
-  // this same user immediately before calling this — see categories.ts.
   async applyReorganization(userId: number, mapping: Array<{ from: string; to: string }>): Promise<void> {
     if (mapping.length === 0) return;
 
-    const statements = mapping.map(({ from, to }) =>
-      this.db
-        .prepare(`UPDATE bookmarks SET category = ?, updated_at = datetime('now') WHERE user_id = ? AND category = ?`)
-        .bind(to, userId, from)
-    );
+    const bySource = new Map(mapping.map((item) => [item.from, item.to]));
+    const rows = await this.listAllStoredRowsByUser(userId);
+    for (const row of rows) {
+      const bookmark = await this.hydrateRow(row);
+      if (!bookmark.category) continue;
+      const target = bySource.get(bookmark.category);
+      if (!target) continue;
 
-    await this.db.batch(statements);
+      const stored = await this.encryption.pack({
+        url: bookmark.url,
+        title: bookmark.title,
+        bodyText: bookmark.body_text,
+        tags: safeParseStoredTags(bookmark.tags),
+        category: target,
+      });
+      await this.persistEncryptedBookmark(bookmark.id, userId, bookmark.status, stored, bookmark);
+    }
   }
 
   async listForReorg(userId: number, limit: number): Promise<ReorgBookmarkRow[]> {
     const { results } = await this.db
       .prepare(
-        `SELECT id, url, title, category FROM bookmarks
-         WHERE user_id = ? AND category IS NOT NULL AND category != ''
-         ORDER BY category, id
+        `${BASE_SELECT}
+         WHERE user_id = ? AND (category_encrypted IS NOT NULL OR (category IS NOT NULL AND category != ''))
+         ORDER BY created_at DESC
          LIMIT ?`
       )
       .bind(userId, limit)
-      .all<ReorgBookmarkRow>();
-    return results;
+      .all<StoredBookmarkRow>();
+    return Promise.all(results.map((row) => this.hydrateReorgRow(row)));
   }
 
   async listByIds(userId: number, ids: number[]): Promise<ReorgBookmarkRow[]> {
@@ -240,22 +320,32 @@ export class D1BookmarkRepository implements BookmarkRepository {
 
     const placeholders = ids.map(() => '?').join(',');
     const { results } = await this.db
-      .prepare(`SELECT id, url, title, category FROM bookmarks WHERE user_id = ? AND id IN (${placeholders})`)
+      .prepare(`${BASE_SELECT} WHERE user_id = ? AND id IN (${placeholders})`)
       .bind(userId, ...ids)
-      .all<ReorgBookmarkRow>();
-    return results;
+      .all<StoredBookmarkRow>();
+    return Promise.all(results.map((row) => this.hydrateReorgRow(row)));
   }
 
   async applyBookmarkMoves(userId: number, moves: Array<{ id: number; category: string }>): Promise<void> {
     if (moves.length === 0) return;
 
-    const statements = moves.map(({ id, category }) =>
-      this.db
-        .prepare(`UPDATE bookmarks SET category = ?, updated_at = datetime('now') WHERE id = ? AND user_id = ?`)
-        .bind(category, id, userId)
-    );
+    for (const move of moves) {
+      const row = await this.db
+        .prepare(`${BASE_SELECT} WHERE id = ? AND user_id = ?`)
+        .bind(move.id, userId)
+        .first<StoredBookmarkRow>();
+      if (!row) continue;
 
-    await this.db.batch(statements);
+      const bookmark = await this.hydrateRow(row);
+      const stored = await this.encryption.pack({
+        url: bookmark.url,
+        title: bookmark.title,
+        bodyText: bookmark.body_text,
+        tags: safeParseStoredTags(bookmark.tags),
+        category: move.category,
+      });
+      await this.persistEncryptedBookmark(move.id, userId, bookmark.status, stored, bookmark);
+    }
   }
 
   async listBookmarksByIds(userId: number, ids: number[]): Promise<BookmarkRow[]> {
@@ -263,10 +353,10 @@ export class D1BookmarkRepository implements BookmarkRepository {
 
     const placeholders = ids.map(() => '?').join(',');
     const { results } = await this.db
-      .prepare(`SELECT * FROM bookmarks WHERE user_id = ? AND id IN (${placeholders})`)
+      .prepare(`${BASE_SELECT} WHERE user_id = ? AND id IN (${placeholders})`)
       .bind(userId, ...ids)
-      .all<BookmarkRow>();
-    return results;
+      .all<StoredBookmarkRow>();
+    return Promise.all(results.map((row) => this.hydrateRow(row)));
   }
 
   async markEmbedded(id: number): Promise<void> {
@@ -276,53 +366,263 @@ export class D1BookmarkRepository implements BookmarkRepository {
   async listUnembeddedProcessed(limit: number): Promise<BookmarkRow[]> {
     const { results } = await this.db
       .prepare(
-        `SELECT * FROM bookmarks
+        `${BASE_SELECT}
          WHERE status = 'processed' AND embedded_at IS NULL AND user_id IS NOT NULL
          LIMIT ?`
       )
       .bind(limit)
-      .all<BookmarkRow>();
-    return results;
+      .all<StoredBookmarkRow>();
+    return Promise.all(results.map((row) => this.hydrateRow(row)));
   }
 
-  // Builds the SET clause from whichever keys are actually present in
-  // `fields` — see UpdateBookmarkFields' doc comment for why presence (not
-  // truthiness) is what matters here.
   async updateByUrl(userId: number, url: string, fields: UpdateBookmarkFields): Promise<boolean> {
-    const sets: string[] = [];
-    const values: unknown[] = [];
+    const row = await this.findStoredByUrl(userId, url);
+    if (!row) return false;
 
-    if ('title' in fields) {
-      sets.push('title = ?');
-      values.push(fields.title ?? null);
-    }
-    if ('category' in fields) {
-      sets.push('category = ?');
-      values.push(fields.category ?? null);
-    }
-    if ('tags' in fields) {
-      sets.push('tags = ?');
-      values.push(JSON.stringify(fields.tags ?? []));
-    }
+    const bookmark = await this.hydrateRow(row);
+    const stored = await this.encryption.pack({
+      url: bookmark.url,
+      title: 'title' in fields ? (fields.title ?? null) : bookmark.title,
+      bodyText: bookmark.body_text,
+      tags: 'tags' in fields ? (fields.tags ?? []) : safeParseStoredTags(bookmark.tags),
+      category: 'category' in fields ? (fields.category ?? null) : bookmark.category,
+    });
 
-    if (sets.length === 0) return false;
-
-    sets.push(`updated_at = datetime('now')`);
-    values.push(userId, url);
-
-    const result = await this.db
-      .prepare(`UPDATE bookmarks SET ${sets.join(', ')} WHERE user_id = ? AND url = ?`)
-      .bind(...values)
-      .run();
-
-    return result.meta.changes > 0;
+    await this.persistEncryptedBookmark(row.id, userId, bookmark.status, stored, bookmark);
+    return true;
   }
 
   async deleteByUrl(userId: number, url: string): Promise<number | null> {
+    const row = await this.findStoredByUrl(userId, url);
+    if (!row) return null;
+
+    const bookmark = await this.hydrateRow(row);
+    const urlLookup = await this.encryption.buildUrlLookup(url);
     const deleted = await this.db
-      .prepare('DELETE FROM bookmarks WHERE user_id = ? AND url = ? RETURNING id')
-      .bind(userId, url)
+      .prepare(
+        `DELETE FROM bookmarks
+         WHERE user_id = ? AND (url_lookup = ? OR (url_lookup IS NULL AND url = ?))
+         RETURNING id`
+      )
+      .bind(userId, urlLookup, url)
       .first<{ id: number }>();
-    return deleted?.id ?? null;
+
+    if (!deleted) return null;
+
+    const previousSearchDocument = await this.encryption.buildSearchDocument({
+      url: bookmark.url,
+      title: bookmark.title,
+      bodyText: bookmark.body_text,
+      tags: safeParseStoredTags(bookmark.tags),
+      category: bookmark.category,
+    });
+
+    await this.db
+      .batch([
+        this.db.prepare(`DELETE FROM bookmark_tag_lookup WHERE bookmark_id = ?`).bind(deleted.id),
+        this.db
+          .prepare(`INSERT INTO bookmarks_fts (bookmarks_fts, rowid, search_terms) VALUES ('delete', ?, ?)`)
+          .bind(deleted.id, previousSearchDocument),
+      ])
+      .catch(() => {});
+
+    return deleted.id;
+  }
+
+  async backfillEncryption(limit: number): Promise<{ migrated: number; moreRemaining: boolean }> {
+    const { results } = await this.db
+      .prepare(
+        `${BASE_SELECT}
+         WHERE url_encrypted IS NULL AND url IS NOT NULL
+         ORDER BY id
+         LIMIT ?`
+      )
+      .bind(limit)
+      .all<StoredBookmarkRow>();
+
+    for (const row of results) {
+      const bookmark = await this.hydrateRow(row);
+      const stored = await this.encryption.pack({
+        url: bookmark.url,
+        title: bookmark.title,
+        bodyText: bookmark.body_text,
+        tags: safeParseStoredTags(bookmark.tags),
+        category: bookmark.category,
+      });
+      await this.persistEncryptedBookmark(row.id, row.user_id, bookmark.status, stored, bookmark, bookmark.embedded_at);
+    }
+
+    return { migrated: results.length, moreRemaining: results.length === limit };
+  }
+
+  private async findStoredByUrl(userId: number, url: string): Promise<StoredBookmarkRow | null> {
+    const urlLookup = await this.encryption.buildUrlLookup(url);
+    return this.db
+      .prepare(
+        `${BASE_SELECT}
+         WHERE user_id = ? AND (url_lookup = ? OR (url_lookup IS NULL AND url = ?))
+         LIMIT 1`
+      )
+      .bind(userId, urlLookup, url)
+      .first<StoredBookmarkRow>();
+  }
+
+  private async getStoredByIdOrThrow(id: number): Promise<StoredBookmarkRow> {
+    const row = await this.db.prepare(`${BASE_SELECT} WHERE id = ?`).bind(id).first<StoredBookmarkRow>();
+    if (!row) {
+      throw new Error(`Bookmark ${id} not found`);
+    }
+    return row;
+  }
+
+  private async listAllStoredRowsByUser(userId: number, limit?: number): Promise<StoredBookmarkRow[]> {
+    const sql = `${BASE_SELECT} WHERE user_id = ? ORDER BY created_at DESC${limit ? ' LIMIT ?' : ''}`;
+    const prepared = this.db.prepare(sql);
+    const { results } = limit
+      ? await prepared.bind(userId, limit).all<StoredBookmarkRow>()
+      : await prepared.bind(userId).all<StoredBookmarkRow>();
+    return results;
+  }
+
+  private async persistEncryptedBookmark(
+    id: number,
+    userId: number | null,
+    status: BookmarkRow['status'],
+    stored: Awaited<ReturnType<BookmarkEncryptionService['pack']>>,
+    previous: Pick<BookmarkRow, 'url' | 'title' | 'body_text' | 'tags' | 'category'>,
+    embeddedAt?: string | null
+  ): Promise<void> {
+    await this.db
+      .prepare(
+        `UPDATE bookmarks
+         SET url = NULL,
+             title = NULL,
+             body_text = NULL,
+             tags = NULL,
+             category = NULL,
+             url_encrypted = ?,
+             title_encrypted = ?,
+             body_text_encrypted = ?,
+             tags_encrypted = ?,
+             category_encrypted = ?,
+             url_lookup = ?,
+             category_lookup = ?,
+             status = ?,
+             embedded_at = COALESCE(?, embedded_at),
+             updated_at = datetime('now')
+         WHERE id = ?`
+      )
+      .bind(
+        stored.urlEncrypted,
+        stored.titleEncrypted,
+        stored.bodyTextEncrypted,
+        stored.tagsEncrypted,
+        stored.categoryEncrypted,
+        stored.urlLookup,
+        stored.categoryLookup,
+        status,
+        embeddedAt ?? null,
+        id
+      )
+      .run();
+
+    if (userId != null) {
+      const previousSearchDocument = await this.encryption.buildSearchDocument({
+        url: previous.url,
+        title: previous.title,
+        bodyText: previous.body_text,
+        tags: safeParseStoredTags(previous.tags),
+        category: previous.category,
+      });
+      await this.replaceDerivedArtifacts(id, userId, previousSearchDocument, stored.searchDocument, stored.tagLookups);
+    }
+  }
+
+  private async replaceDerivedArtifacts(
+    id: number,
+    userId: number,
+    previousSearchDocument: string | null,
+    searchDocument: string,
+    tagLookups: string[]
+  ): Promise<void> {
+    const statements = [
+      this.db.prepare(`DELETE FROM bookmark_tag_lookup WHERE bookmark_id = ?`).bind(id),
+      ...(previousSearchDocument !== null
+        ? [
+            this.db
+              .prepare(`INSERT INTO bookmarks_fts (bookmarks_fts, rowid, search_terms) VALUES ('delete', ?, ?)`)
+              .bind(id, previousSearchDocument),
+          ]
+        : []),
+      this.db.prepare(`INSERT INTO bookmarks_fts (rowid, search_terms) VALUES (?, ?)`).bind(id, searchDocument),
+      ...tagLookups.map((tagLookup) =>
+        this.db
+          .prepare(`INSERT INTO bookmark_tag_lookup (bookmark_id, user_id, tag_lookup) VALUES (?, ?, ?)`)
+          .bind(id, userId, tagLookup)
+      ),
+    ];
+
+    await this.db.batch(statements);
+  }
+
+  private async hydrateRow(row: StoredBookmarkRow): Promise<BookmarkRow> {
+    const [url, title, bodyText, tags, category] = await Promise.all([
+      this.encryption.decryptField(row.url_encrypted, row.url),
+      this.encryption.decryptField(row.title_encrypted, row.title),
+      this.encryption.decryptField(row.body_text_encrypted, row.body_text),
+      this.encryption.decryptField(row.tags_encrypted, row.tags),
+      this.encryption.decryptField(row.category_encrypted, row.category),
+    ]);
+
+    if (!url) {
+      throw new Error(`Bookmark ${row.id} is missing a readable url`);
+    }
+
+    return {
+      id: row.id,
+      user_id: row.user_id,
+      url,
+      title,
+      body_text: bodyText,
+      tags,
+      category,
+      status: row.status,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+      embedded_at: row.embedded_at,
+    };
+  }
+
+  private async hydrateReorgRow(row: StoredBookmarkRow): Promise<ReorgBookmarkRow> {
+    const bookmark = await this.hydrateRow(row);
+    return {
+      id: bookmark.id,
+      url: bookmark.url,
+      title: bookmark.title,
+      category: bookmark.category,
+    };
+  }
+
+  private async hydrateSearchResult(row: StoredBookmarkRow): Promise<BookmarkSearchResult> {
+    const bookmark = await this.hydrateRow(row);
+    return { ...bookmark, rank: row.rank ?? 0 };
+  }
+}
+
+const BASE_SELECT = `
+  SELECT
+    id, user_id, url, title, body_text, tags, category,
+    url_encrypted, title_encrypted, body_text_encrypted, tags_encrypted, category_encrypted,
+    url_lookup, category_lookup, status, created_at, updated_at, embedded_at
+  FROM bookmarks
+`;
+
+function safeParseStoredTags(tags: string | null): string[] {
+  if (!tags) return [];
+  try {
+    const parsed = JSON.parse(tags);
+    return Array.isArray(parsed) ? parsed.filter((tag): tag is string => typeof tag === 'string') : [];
+  } catch {
+    return [];
   }
 }

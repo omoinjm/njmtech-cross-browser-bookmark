@@ -15,7 +15,7 @@
 
 **The browser extension that remembers so you don't have to.**
 
-A personal, cross-browser bookmark library — a lightweight MV3 browser extension forwards every new bookmark to a Cloudflare Worker, which scrapes the page, generates tags with Workers AI, and indexes everything for full-text and semantic search — all asynchronously, so the browser never waits on it.
+A personal, cross-browser bookmark library — a lightweight MV3 browser extension forwards every new bookmark to a Cloudflare Worker, which scrapes the page, generates tags with Workers AI, encrypts bookmark source fields at rest, and maintains derived keyword and semantic search indexes — all asynchronously, so the browser never waits on it.
 
 > Repo/package name: `bookmark-sync-engine`. For architecture diagrams, the API reference, and deployment/CI internals, see [`docs/README.md`](docs/README.md).
 
@@ -32,7 +32,7 @@ See [How to use it](#how-to-use-it) for the full walkthrough.
 
 - **Extension** — Manifest V3 WebExtension (Chrome, Edge, Firefox), using Mozilla's [`webextension-polyfill`](https://github.com/mozilla/webextension-polyfill) for one codebase across both.
 - **Backend** — [Hono](https://hono.dev) running on Cloudflare Workers, written in TypeScript.
-- **Database** — Cloudflare D1 (SQLite), with an FTS5 index for full-text search.
+- **Database** — Cloudflare D1 (SQLite), with encrypted bookmark source fields plus a derived hashed-term FTS5 index for fast keyword search.
 - **AI** — Cloudflare Workers AI: Llama 3.1/3.3 for tagging, categorization, and category reorganization; `bge-base-en-v1.5` for embeddings.
 - **Semantic search** — Cloudflare Vectorize.
 - **Page scraping** — Cloudflare Browser Rendering (headless Chromium via `@cloudflare/puppeteer`).
@@ -56,6 +56,7 @@ See [How to use it](#how-to-use-it) for the full walkthrough.
 
 ```sh
 npm install
+npx wrangler secret put BOOKMARK_ENCRYPTION_KEY  # base64-encoded 32-byte key
 npm run dev       # wrangler dev — local Worker
 npm run build     # wrangler deploy --dry-run — verifies the bundle builds, doesn't publish
 npm run typecheck # tsc -p apps/worker/tsconfig.json
@@ -89,15 +90,16 @@ Issues and PRs are welcome.
 
 1. Fork the repo and branch off `main`.
 2. `npm install`
-3. Before opening a PR, run the same checks CI runs:
+3. Configure `BOOKMARK_ENCRYPTION_KEY` in Cloudflare/Wrangler before running the Worker locally or remotely.
+4. Before opening a PR, run the same checks CI runs:
    ```sh
    npm run typecheck
    npm run build
    npm run test:extension
    npm run lint:firefox
    ```
-4. For extension changes, [load the unpacked build](#loading-the-browser-extension) and click through the affected flow — the automated checks catch regressions, not new-feature correctness.
-5. Open a PR describing what changed and why.
+5. For extension changes, [load the unpacked build](#loading-the-browser-extension) and click through the affected flow — the automated checks catch regressions, not new-feature correctness.
+6. Open a PR describing what changed and why.
 
 ## License
 

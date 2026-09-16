@@ -42,10 +42,10 @@
         <ul>
           <li><strong>Account info:</strong> your email address, and a password (only ever stored as a salted PBKDF2 hash — we never store or can see your actual password).</li>
           <li><strong>Session tokens:</strong> a login session token is issued to your browser; the server only ever stores a hash of it, never the token itself.</li>
-          <li><strong>Bookmarks:</strong> the URL, title, and your real browser folder path (used as the "category") for each bookmark you save or import.</li>
-          <li><strong>Scraped page content:</strong> when you save a bookmark, we fetch the page once and store its title and body text, used to power full-text and semantic search.</li>
+          <li><strong>Bookmarks:</strong> the URL, title, and your real browser folder path (used as the "category") for each bookmark you save or import. These source fields are encrypted at rest in our database.</li>
+          <li><strong>Scraped page content:</strong> when you save a bookmark, we fetch the page once and store its title and body text, also encrypted at rest, used to power derived keyword and semantic search.</li>
           <li><strong>AI-generated tags and categories:</strong> automatically generated from the above, used to organize and help you find your bookmarks.</li>
-          <li><strong>Search embeddings:</strong> a numeric vector representation of each bookmark, used only for semantic ("meaning-based") search.</li>
+          <li><strong>Search artifacts:</strong> a derived hashed keyword index for quick search and a numeric embedding vector for semantic ("meaning-based") search.</li>
         </ul>
         <p>
           We do not collect your general browsing history, keystrokes, mouse activity, or location. The extension's
@@ -89,7 +89,9 @@
         <p>
           All traffic between the extension and our API is encrypted (HTTPS). Passwords are never stored in
           plaintext — only a salted PBKDF2 hash. Session tokens are only ever stored server-side as a hash; the raw
-          token is shown to you once, at login.
+          token is shown to you once, at login. Bookmark source fields are encrypted before they are written to D1,
+          then decrypted server-side during normal operation so Azi can return your library, run AI tagging, and
+          maintain search indexes.
         </p>
 
         <h2>Children's privacy</h2>

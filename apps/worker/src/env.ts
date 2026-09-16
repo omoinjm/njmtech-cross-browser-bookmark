@@ -3,6 +3,8 @@
  *  - DB:        D1 database (bookmarks + bookmarks_fts + users/sessions)
  *  - AI:        Workers AI, used for auto-tagging and embeddings
  *  - BROWSER:   Browser Rendering, used to scrape title/body text
+ *  - BOOKMARK_ENCRYPTION_KEY: base64-encoded 32-byte secret used to encrypt
+ *    bookmark source fields at rest and derive deterministic blind indexes.
  *  - VECTORIZE: Vectorize index storing one embedding per processed
  *    bookmark, used for semantic search — see services/embedding-generator.ts
  *    and services/semantic-index.ts.
@@ -16,6 +18,7 @@ export interface Env {
   DB: D1Database;
   AI: Ai;
   BROWSER: Fetcher;
+  BOOKMARK_ENCRYPTION_KEY: string;
   VECTORIZE: VectorizeIndex;
 }
 
@@ -44,7 +47,7 @@ export interface BookmarkRow {
 }
 
 export interface BookmarkSearchResult extends BookmarkRow {
-  snippet: string;
+  snippet?: string;
   rank: number;
 }
 

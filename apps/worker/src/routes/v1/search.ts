@@ -16,12 +16,12 @@ const SEMANTIC_MIN_SCORE = 0.5;
 /**
  * GET /api/v1/search?q=...&mode=keyword|semantic (default keyword)
  *
- * keyword (default): full-text search over title/body_text/tags/category via
- * the bookmarks_fts index. If the exact-match query comes up empty, falls
- * back to widening it with AI-suggested related terms (drawn from the tags
- * and categories actually in use) so a query like "js" can still surface a
- * bookmark titled/tagged "javascript" even though plain prefix matching
- * wouldn't connect the two.
+ * keyword (default): fast blind-index search over derived hashed terms from
+ * url/title/body_text/tags/category. Raw D1/FTS inspection no longer reveals
+ * bookmark plaintext, but the Worker can still widen a zero-result query with
+ * AI-suggested related terms (drawn from the decrypted tags/categories
+ * actually in use) so a query like "js" can still surface a bookmark tagged
+ * "javascript".
  *
  * AI expansion only ever runs on a zero-result exact search, not every
  * search — an LLM asked to relate a query to a big tag/category list will
@@ -51,14 +51,14 @@ search.get('/', async (c) => {
   }
 
   const baseFtsQuery = buildFtsMatchQuery(q);
-  if (!baseFtsQuery) {
+  if (baseFtsQuery.length === 0) {
     return c.json({ results: [] });
   }
 
   const user = c.get('user');
   const { repository, searchQueryExpander } = c.get('deps');
 
-  const exactResults = await repository.search(user.id, baseFtsQuery);
+  const exactResults = await repository.search(user.id, [baseFtsQuery]);
   if (exactResults.length > 0) {
     return c.json({ query: q, results: exactResults.map((row) => ({ ...row, tags: safeParseTags(row.tags) })) });
   }
