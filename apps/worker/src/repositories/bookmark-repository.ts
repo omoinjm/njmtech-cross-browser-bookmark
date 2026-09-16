@@ -81,6 +81,8 @@ export interface BookmarkRepository {
   deleteByUrl(userId: number, url: string): Promise<number | null>;
   /** One batch of legacy plaintext rows -> encrypted rows + derived lookup/index artifacts. */
   backfillEncryption(limit: number): Promise<{ migrated: number; moreRemaining: boolean }>;
+  /** One batch of bookmarks missing a bookmarks_fts row -> rebuilds just that row, without touching source columns. For repairing/rebuilding the search index in place (e.g. after recreating bookmarks_fts). */
+  reindexSearchDocuments(limit: number): Promise<{ reindexed: number; moreRemaining: boolean }>;
 }
 
 export class D1BookmarkRepository implements BookmarkRepository {
@@ -457,6 +459,32 @@ export class D1BookmarkRepository implements BookmarkRepository {
     }
 
     return { migrated: results.length, moreRemaining: results.length === limit };
+  }
+
+  async reindexSearchDocuments(limit: number): Promise<{ reindexed: number; moreRemaining: boolean }> {
+    const { results } = await this.db
+      .prepare(
+        `${BASE_SELECT}
+         WHERE NOT EXISTS (SELECT 1 FROM bookmarks_fts f WHERE f.rowid = bookmarks.id)
+         ORDER BY id
+         LIMIT ?`
+      )
+      .bind(limit)
+      .all<StoredBookmarkRow>();
+
+    for (const row of results) {
+      const bookmark = await this.hydrateRow(row);
+      const searchDocument = await this.encryption.buildSearchDocument({
+        url: bookmark.url,
+        title: bookmark.title,
+        bodyText: bookmark.body_text,
+        tags: safeParseStoredTags(bookmark.tags),
+        category: bookmark.category,
+      });
+      await this.db.prepare(`INSERT INTO bookmarks_fts (rowid, search_terms) VALUES (?, ?)`).bind(row.id, searchDocument).run();
+    }
+
+    return { reindexed: results.length, moreRemaining: results.length === limit };
   }
 
   private async findStoredByUrl(userId: number, url: string): Promise<StoredBookmarkRow | null> {

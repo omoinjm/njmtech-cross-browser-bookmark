@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import type { AppEnv } from '../../http-context';
 import { requireSession } from '../../middleware/require-session';
 import { runBookmarkEncryptionBackfillBatch } from '../../services/bookmark-encryption-backfill';
+import { runBookmarkSearchReindexBatch } from '../../services/bookmark-search-reindex';
 import { runEmbeddingBackfillBatch } from '../../services/embedding-backfill';
 
 export const admin = new Hono<AppEnv>();
@@ -34,5 +35,18 @@ admin.post('/backfill-embeddings', async (c) => {
  */
 admin.post('/backfill-bookmark-encryption', async (c) => {
   const result = await runBookmarkEncryptionBackfillBatch(c.get('deps'));
+  return c.json(result);
+});
+
+/**
+ * POST /api/v1/admin/reindex-bookmark-search
+ * Rebuilds one batch of missing bookmarks_fts rows from each bookmark's
+ * current (encrypted-or-legacy) content, without touching the source
+ * columns. Safe to call repeatedly until `moreRemaining` is false — for
+ * repairing/rebuilding the search index in place, e.g. after bookmarks_fts
+ * was dropped and recreated.
+ */
+admin.post('/reindex-bookmark-search', async (c) => {
+  const result = await runBookmarkSearchReindexBatch(c.get('deps'));
   return c.json(result);
 });
