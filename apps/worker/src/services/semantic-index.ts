@@ -45,10 +45,24 @@ export class VectorizeSemanticIndex implements SemanticIndex {
   }
 
   async reindexMetadata(bookmarkIds: number[]): Promise<number> {
-    if (bookmarkIds.length === 0) return 0;
-    const vectors = await this.index.getByIds(bookmarkIds.map(String));
-    if (vectors.length === 0) return 0;
-    await this.index.upsert(vectors);
-    return vectors.length;
+    let reindexed = 0;
+    // getByIds caps out at 20 ids per call (VECTOR_GET_ERROR 40007 above that).
+    for (const idChunk of chunkArray(bookmarkIds, GET_BY_IDS_MAX)) {
+      const vectors = await this.index.getByIds(idChunk.map(String));
+      if (vectors.length === 0) continue;
+      await this.index.upsert(vectors);
+      reindexed += vectors.length;
+    }
+    return reindexed;
   }
+}
+
+const GET_BY_IDS_MAX = 20;
+
+function chunkArray<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
 }
