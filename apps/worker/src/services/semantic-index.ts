@@ -13,6 +13,14 @@ export interface SemanticIndex {
   delete(bookmarkId: number): Promise<void>;
   /** Nearest neighbors to `vector` scoped to `userId`, best match first. */
   query(vector: number[], userId: number, topK: number): Promise<Array<{ id: number; score: number }>>;
+  /**
+   * Re-upserts existing vectors unchanged (same id/values/metadata) — Vectorize
+   * doesn't reliably apply a metadata index (see create-metadata-index) to
+   * vectors that were already stored before the index existed; re-upserting
+   * forces them to be picked up. Returns how many of the given ids actually
+   * had a stored vector.
+   */
+  reindexMetadata(bookmarkIds: number[]): Promise<number>;
 }
 
 export class VectorizeSemanticIndex implements SemanticIndex {
@@ -34,5 +42,13 @@ export class VectorizeSemanticIndex implements SemanticIndex {
     return result.matches
       .map((match) => ({ id: Number(match.id), score: match.score }))
       .filter((match) => Number.isInteger(match.id));
+  }
+
+  async reindexMetadata(bookmarkIds: number[]): Promise<number> {
+    if (bookmarkIds.length === 0) return 0;
+    const vectors = await this.index.getByIds(bookmarkIds.map(String));
+    if (vectors.length === 0) return 0;
+    await this.index.upsert(vectors);
+    return vectors.length;
   }
 }

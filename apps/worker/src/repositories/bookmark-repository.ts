@@ -83,6 +83,8 @@ export interface BookmarkRepository {
   backfillEncryption(limit: number): Promise<{ migrated: number; moreRemaining: boolean }>;
   /** One batch of bookmarks missing a bookmarks_fts row -> rebuilds just that row, without touching source columns. For repairing/rebuilding the search index in place (e.g. after recreating bookmarks_fts). */
   reindexSearchDocuments(limit: number): Promise<{ reindexed: number; moreRemaining: boolean }>;
+  /** Ids of every embedded, user-owned bookmark — feeds a one-off Vectorize metadata re-upsert (see /admin/reindex-vectorize-metadata). Excludes the pre-account-system orphans (user_id IS NULL), which were never filterable anyway. */
+  listEmbeddedBookmarkIds(): Promise<number[]>;
 }
 
 export class D1BookmarkRepository implements BookmarkRepository {
@@ -485,6 +487,13 @@ export class D1BookmarkRepository implements BookmarkRepository {
     }
 
     return { reindexed: results.length, moreRemaining: results.length === limit };
+  }
+
+  async listEmbeddedBookmarkIds(): Promise<number[]> {
+    const { results } = await this.db
+      .prepare(`SELECT id FROM bookmarks WHERE embedded_at IS NOT NULL AND user_id IS NOT NULL`)
+      .all<{ id: number }>();
+    return results.map((row) => row.id);
   }
 
   private async findStoredByUrl(userId: number, url: string): Promise<StoredBookmarkRow | null> {

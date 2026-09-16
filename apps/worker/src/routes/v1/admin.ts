@@ -50,3 +50,17 @@ admin.post('/reindex-bookmark-search', async (c) => {
   const result = await runBookmarkSearchReindexBatch(c.get('deps'));
   return c.json(result);
 });
+
+/**
+ * POST /api/v1/admin/reindex-vectorize-metadata
+ * One-off fix for vectors upserted before a Vectorize metadata index existed
+ * (see create-metadata-index) — re-upserts every embedded bookmark's
+ * existing vector unchanged so it's actually covered by the metadata filter
+ * semantic search relies on. Safe to call more than once (idempotent).
+ */
+admin.post('/reindex-vectorize-metadata', async (c) => {
+  const { repository, semanticIndex } = c.get('deps');
+  const ids = await repository.listEmbeddedBookmarkIds();
+  const reindexed = await semanticIndex.reindexMetadata(ids);
+  return c.json({ candidates: ids.length, reindexed });
+});
