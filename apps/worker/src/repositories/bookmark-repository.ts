@@ -256,7 +256,7 @@ export class D1BookmarkRepository implements BookmarkRepository {
       category: bookmark.category,
     });
 
-    await this.persistEncryptedBookmark(id, bookmark.user_id!, 'processed', stored, bookmark);
+    await this.persistEncryptedBookmark(id, bookmark.user_id!, 'processed', stored, bookmark, row.url_encrypted != null);
   }
 
   async markFailed(id: number): Promise<void> {
@@ -277,7 +277,7 @@ export class D1BookmarkRepository implements BookmarkRepository {
       category,
     });
 
-    await this.persistEncryptedBookmark(id, bookmark.user_id!, bookmark.status, stored, bookmark);
+    await this.persistEncryptedBookmark(id, bookmark.user_id!, bookmark.status, stored, bookmark, row.url_encrypted != null);
   }
 
   async applyReorganization(userId: number, mapping: Array<{ from: string; to: string }>): Promise<void> {
@@ -298,7 +298,7 @@ export class D1BookmarkRepository implements BookmarkRepository {
         tags: safeParseStoredTags(bookmark.tags),
         category: target,
       });
-      await this.persistEncryptedBookmark(bookmark.id, userId, bookmark.status, stored, bookmark);
+      await this.persistEncryptedBookmark(bookmark.id, userId, bookmark.status, stored, bookmark, row.url_encrypted != null);
     }
   }
 
@@ -344,7 +344,7 @@ export class D1BookmarkRepository implements BookmarkRepository {
         tags: safeParseStoredTags(bookmark.tags),
         category: move.category,
       });
-      await this.persistEncryptedBookmark(move.id, userId, bookmark.status, stored, bookmark);
+      await this.persistEncryptedBookmark(move.id, userId, bookmark.status, stored, bookmark, row.url_encrypted != null);
     }
   }
 
@@ -388,7 +388,7 @@ export class D1BookmarkRepository implements BookmarkRepository {
       category: 'category' in fields ? (fields.category ?? null) : bookmark.category,
     });
 
-    await this.persistEncryptedBookmark(row.id, userId, bookmark.status, stored, bookmark);
+    await this.persistEncryptedBookmark(row.id, userId, bookmark.status, stored, bookmark, row.url_encrypted != null);
     return true;
   }
 
@@ -409,22 +409,26 @@ export class D1BookmarkRepository implements BookmarkRepository {
 
     if (!deleted) return null;
 
-    const previousSearchDocument = await this.encryption.buildSearchDocument({
-      url: bookmark.url,
-      title: bookmark.title,
-      bodyText: bookmark.body_text,
-      tags: safeParseStoredTags(bookmark.tags),
-      category: bookmark.category,
-    });
+    const statements = [this.db.prepare(`DELETE FROM bookmark_tag_lookup WHERE bookmark_id = ?`).bind(deleted.id)];
 
-    await this.db
-      .batch([
-        this.db.prepare(`DELETE FROM bookmark_tag_lookup WHERE bookmark_id = ?`).bind(deleted.id),
+    // Legacy (never-backfilled) rows were never inserted into bookmarks_fts —
+    // see persistEncryptedBookmark's `alreadyIndexed` comment.
+    if (row.url_encrypted != null) {
+      const previousSearchDocument = await this.encryption.buildSearchDocument({
+        url: bookmark.url,
+        title: bookmark.title,
+        bodyText: bookmark.body_text,
+        tags: safeParseStoredTags(bookmark.tags),
+        category: bookmark.category,
+      });
+      statements.push(
         this.db
           .prepare(`INSERT INTO bookmarks_fts (bookmarks_fts, rowid, search_terms) VALUES ('delete', ?, ?)`)
-          .bind(deleted.id, previousSearchDocument),
-      ])
-      .catch(() => {});
+          .bind(deleted.id, previousSearchDocument)
+      );
+    }
+
+    await this.db.batch(statements).catch(() => {});
 
     return deleted.id;
   }
@@ -449,7 +453,7 @@ export class D1BookmarkRepository implements BookmarkRepository {
         tags: safeParseStoredTags(bookmark.tags),
         category: bookmark.category,
       });
-      await this.persistEncryptedBookmark(row.id, row.user_id, bookmark.status, stored, bookmark, bookmark.embedded_at);
+      await this.persistEncryptedBookmark(row.id, row.user_id, bookmark.status, stored, bookmark, row.url_encrypted != null, bookmark.embedded_at);
     }
 
     return { migrated: results.length, moreRemaining: results.length === limit };
@@ -490,6 +494,12 @@ export class D1BookmarkRepository implements BookmarkRepository {
     status: BookmarkRow['status'],
     stored: Awaited<ReturnType<BookmarkEncryptionService['pack']>>,
     previous: Pick<BookmarkRow, 'url' | 'title' | 'body_text' | 'tags' | 'category'>,
+    // Legacy (pre-backfill) rows were never inserted into bookmarks_fts in the
+    // first place — issuing the FTS5 'delete' command for a rowid that was
+    // never indexed corrupts a contentless table's index. Only rows that were
+    // already encrypted (and therefore already indexed, via create() or a
+    // prior call here) have a real prior entry to delete.
+    alreadyIndexed: boolean,
     embeddedAt?: string | null
   ): Promise<void> {
     await this.db
@@ -527,13 +537,15 @@ export class D1BookmarkRepository implements BookmarkRepository {
       .run();
 
     if (userId != null) {
-      const previousSearchDocument = await this.encryption.buildSearchDocument({
-        url: previous.url,
-        title: previous.title,
-        bodyText: previous.body_text,
-        tags: safeParseStoredTags(previous.tags),
-        category: previous.category,
-      });
+      const previousSearchDocument = alreadyIndexed
+        ? await this.encryption.buildSearchDocument({
+            url: previous.url,
+            title: previous.title,
+            bodyText: previous.body_text,
+            tags: safeParseStoredTags(previous.tags),
+            category: previous.category,
+          })
+        : null;
       await this.replaceDerivedArtifacts(id, userId, previousSearchDocument, stored.searchDocument, stored.tagLookups);
     }
   }

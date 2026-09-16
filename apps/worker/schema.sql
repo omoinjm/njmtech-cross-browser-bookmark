@@ -91,6 +91,7 @@ CREATE INDEX idx_bookmarks_category_lookup ON bookmarks (category_lookup);
 CREATE VIRTUAL TABLE bookmarks_fts USING fts5(
   search_terms,
   content = '',
+  contentless_delete = 1,
   tokenize = 'unicode61'
 );
 
