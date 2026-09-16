@@ -1,5 +1,6 @@
 import { Hono, type Context } from 'hono';
 import type { AppEnv } from '../../http-context';
+import type { BookmarkRow } from '../../env';
 import { requireSession } from '../../middleware/require-session';
 import { buildFtsMatchQuery, widenFtsMatchQuery, safeParseTags } from '../../lib/validation';
 
@@ -60,7 +61,10 @@ search.get('/', async (c) => {
 
   const exactResults = await repository.search(user.id, [baseFtsQuery]);
   if (exactResults.length > 0) {
-    return c.json({ query: q, results: exactResults.map((row) => ({ ...row, tags: safeParseTags(row.tags) })) });
+    return c.json({
+      query: q,
+      results: exactResults.map((row) => ({ ...row, tags: safeParseTags(row.tags), snippet: buildHighlightedSnippet(row, baseFtsQuery) })),
+    });
   }
 
   const [tagCounts, categoryCounts] = await Promise.all([repository.listTags(user.id), repository.listCategories(user.id)]);
@@ -74,8 +78,14 @@ search.get('/', async (c) => {
     return c.json({ query: q, results: [] });
   }
 
-  const widenedResults = await repository.search(user.id, widenFtsMatchQuery(baseFtsQuery, expandedTerms));
-  const parsed = widenedResults.map((row) => ({ ...row, tags: safeParseTags(row.tags) }));
+  const widenedGroups = widenFtsMatchQuery(baseFtsQuery, expandedTerms);
+  const widenedResults = await repository.search(user.id, widenedGroups);
+  const allWidenedTerms = widenedGroups.flat();
+  const parsed = widenedResults.map((row) => ({
+    ...row,
+    tags: safeParseTags(row.tags),
+    snippet: buildHighlightedSnippet(row, allWidenedTerms),
+  }));
 
   return c.json({ query: q, expandedTerms, results: parsed });
 });
@@ -106,4 +116,52 @@ async function handleSemanticSearch(c: Context<AppEnv>, q: string) {
     .map((row) => ({ ...row, tags: safeParseTags(row.tags) }));
 
   return c.json({ query: q, results });
+}
+
+const SNIPPET_MARK_START = '';
+const SNIPPET_MARK_END = '';
+// Chars of context kept on each side of the first match, mirroring FTS5's
+// own snippet() sizing (which we can no longer use — bookmarks_fts only
+// ever stores hashed terms, never real text, see bookmark-encryption.ts).
+const SNIPPET_RADIUS = 60;
+
+/**
+ * Rebuilds a readable, highlighted snippet from a result's own decrypted
+ * content (already hydrated by repository.search by the time this runs).
+ * Searches body_text/title/url, in that preference order, for the literal
+ * terms that drove the match, and wraps each occurrence in SNIPPET_MARK_*
+ * markers — see appendHighlightedSnippet in the extension for how those
+ * get turned into <mark> elements.
+ */
+function buildHighlightedSnippet(bookmark: Pick<BookmarkRow, 'title' | 'body_text' | 'url'>, terms: string[]): string | undefined {
+  const uniqueTerms = [...new Set(terms)].filter(Boolean);
+  if (uniqueTerms.length === 0) return undefined;
+
+  const pattern = new RegExp(uniqueTerms.map(escapeRegExp).join('|'), 'giu');
+
+  for (const candidate of [bookmark.body_text, bookmark.title, bookmark.url]) {
+    if (!candidate) continue;
+
+    pattern.lastIndex = 0;
+    const firstMatch = pattern.exec(candidate);
+    if (!firstMatch) continue;
+
+    const windowStart = Math.max(0, firstMatch.index - SNIPPET_RADIUS);
+    const windowEnd = Math.min(candidate.length, firstMatch.index + firstMatch[0].length + SNIPPET_RADIUS);
+    const prefix = windowStart > 0 ? '…' : '';
+    const suffix = windowEnd < candidate.length ? '…' : '';
+
+    pattern.lastIndex = 0;
+    const highlighted = candidate
+      .slice(windowStart, windowEnd)
+      .replace(pattern, (match) => `${SNIPPET_MARK_START}${match}${SNIPPET_MARK_END}`);
+
+    return `${prefix}${highlighted}${suffix}`;
+  }
+
+  return undefined;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
